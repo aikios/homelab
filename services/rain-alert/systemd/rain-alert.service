@@ -1,0 +1,13 @@
+[Unit]
+Description=rain-alert — DM owner to bring patio chair in if rain is likely today
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/rain-alert
+# Shared Discord creds (DISCORD_BOT_TOKEN / OWNER_DISCORD_ID) read live by
+# homelab_core.config.shared_env; never copied into this unit or onto argv.
+Environment=HOMELAB_SHARED_ENV=%%REPO%%/secrets/shared.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% rain-alert

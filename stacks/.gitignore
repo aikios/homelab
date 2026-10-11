@@ -1,0 +1,12 @@
+# stacks/ is config-as-code: ONLY the compose definition, scrubbed env examples,
+# and docs are tracked. Everything a running stack writes under its dir
+# (bind-mounted config/data/state/secrets — e.g. arr-stack/{radarr,sonarr,…},
+# homeassistant/config, matter-server/data, openclaw/{config,workspace,auth-secrets})
+# is ignored by default, so no state or secret can be committed by accident.
+*
+!*/
+!.gitignore
+!README.md
+!*/README.md
+!*/docker-compose.yml
+!*/*.env.example

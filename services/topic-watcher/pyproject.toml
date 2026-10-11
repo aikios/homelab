@@ -1,0 +1,16 @@
+[project]
+name = "topic-watcher"
+version = "0.1.0"
+description = "Daily Google News topic watcher that DMs new hits via the shared Discord bot"
+requires-python = ">=3.10"
+dependencies = ["homelab-core"]
+
+[project.scripts]
+topic-watcher = "topic_watcher:main"
+
+[tool.uv.sources]
+homelab-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

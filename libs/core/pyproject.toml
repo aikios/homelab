@@ -1,0 +1,10 @@
+[project]
+name = "homelab-core"
+version = "0.1.0"
+description = "Shared building blocks for homelab services: config, Discord notify, Home Assistant location."
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

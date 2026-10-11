@@ -1,0 +1,27 @@
+# secrets — never commit (only *.example)
+.env
+*.env
+!*.env.example
+*.env.local
+
+# real per-host inventory (keep only hosts.example.yml)
+deploy/hosts/*.local.yml
+
+# runtime state written by services
+**/state/
+**/.storage/
+*.sqlite
+*.sqlite3
+
+# python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.ty_cache/
+
+# docker stack data volumes (config captured as compose, not data)
+stacks/**/config/
+stacks/**/data/
+
+.DS_Store

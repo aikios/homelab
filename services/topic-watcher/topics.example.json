@@ -1,0 +1,7 @@
+[
+  {
+    "id": "some-short-slug",
+    "label": "Human-readable name shown in the Discord message",
+    "query": "the actual search phrase"
+  }
+]

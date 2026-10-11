@@ -1,0 +1,10 @@
+[Unit]
+Description=Run topic-watcher's daily news check
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

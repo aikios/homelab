@@ -1,0 +1,14 @@
+# Which services and stacks run on which host.
+#
+# Copy to hosts.local.yml (gitignored) and fill in real hosts. Keep real
+# hostnames / IPs out of this committed example — the repo is public.
+hosts:
+  example-server:               # e.g. your home server
+    address: user@server.lan    # ssh target (real one goes in hosts.local.yml)
+    services: [rain-alert, topic-watcher, mediabot]
+    stacks:   [arr-stack, jellyfin-mcp, flaresolverr, matter-server, homeassistant, openclaw]
+
+  example-spare:                # a second box you want some services on
+    address: user@spare.lan
+    services: [rain-alert]
+    stacks:   []

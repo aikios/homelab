@@ -1,0 +1,16 @@
+[project]
+name = "rain-alert"
+version = "0.1.0"
+description = "Morning Discord DM to bring the patio chair in when rain is likely"
+requires-python = ">=3.10"
+dependencies = ["homelab-core"]
+
+[project.scripts]
+rain-alert = "rain_alert:main"
+
+[tool.uv.sources]
+homelab-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

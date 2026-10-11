@@ -1,0 +1,20 @@
+[Unit]
+Description=topic-watcher — long-running DM listener for watchlist commands (polls every 2s)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/topic-watcher
+Environment=HOMELAB_SHARED_ENV=%%REPO%%/secrets/shared.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% topic-watcher --listen
+Restart=always
+RestartSec=5
+# a tight sleep(2) loop doing one small curl call per iteration — negligible,
+# but cap it so a bug can't run away
+MemoryMax=100M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

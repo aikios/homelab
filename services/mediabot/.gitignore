@@ -1,0 +1,9 @@
+# secrets (shared creds live in ../../secrets/shared.env; these are mediabot's own)
+.env
+.arr-keys.env
+# runtime
+logs/
+state/
+.venv/
+__pycache__/
+*.pyc

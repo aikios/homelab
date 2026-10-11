@@ -1,0 +1,23 @@
+[Unit]
+Description=mediabot — Discord media agent
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=%%DEPLOY_USER%%
+Environment=PYTHONUNBUFFERED=1
+Environment=HOMELAB_SHARED_ENV=%%REPO%%/secrets/shared.env
+WorkingDirectory=%%REPO%%/services/mediabot
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% python -m mediabot.bot
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+# keep memory modest on a 7 GB box
+MemoryMax=900M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

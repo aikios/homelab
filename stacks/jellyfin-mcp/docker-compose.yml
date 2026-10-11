@@ -1,0 +1,12 @@
+services:
+  jellyfin-mcp:
+    container_name: jellyfin-mcp
+    image: ghcr.io/jaredtrent/jellyfin-mcp:latest
+    env_file:
+      - .env
+    command: ["--http", "--addr", "0.0.0.0:8080", "--http-token", "${JELLYFIN_MCP_TOKEN}", "--read-only", "--toolsets", "discovery,media"]
+    ports:
+      - "8098:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

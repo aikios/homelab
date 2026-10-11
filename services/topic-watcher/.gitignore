@@ -1,0 +1,3 @@
+# the live watchlist is personal (and edited at runtime by chat commands);
+# only topics.example.json is committed. state/ is covered by the repo .gitignore.
+/topics.json

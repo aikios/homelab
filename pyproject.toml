@@ -1,0 +1,18 @@
+[project]
+name = "homelab"
+version = "0.0.0"
+description = "home server as code: reusable Python services + third-party stack configs"
+requires-python = ">=3.10"
+dependencies = [
+    "homelab-core",
+    "pyyaml>=6.0.3",
+]
+
+[tool.uv.workspace]
+members = ["libs/*", "services/*"]
+
+[tool.uv.sources]
+homelab-core = { workspace = true }
+
+[tool.uv]
+package = false
