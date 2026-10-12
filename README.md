@@ -39,7 +39,15 @@ in your real hosts first. A stack that declares secrets (`.env.example`) is
 skipped until you create its real `.env`.
 
 ## Secrets & safety (this repo is public)
-- Never commit `.env`, tokens, real host IPs/hostnames, or owner IDs — only
-  `*.example` files. Real values live in gitignored `.env` / `hosts.local.yml`.
-- `uvx pre-commit install` enables the gitleaks hook. Turn on GitHub
-  secret-scanning + push-protection for the repo too.
+- **Nothing host-specific is committed** — no secrets, tokens, real hostnames/IPs,
+  home coordinates, usernames, or owner IDs. Only `*.example` files and templates.
+- **Where real values live (all gitignored):** cross-service creds in
+  `secrets/shared.env`; each service's own keys in its `services/<svc>/.env`;
+  the host inventory in `deploy/hosts/hosts.local.yml`; stack creds in
+  `stacks/<app>/.env`.
+- **systemd units are host-agnostic templates** (`%%DEPLOY_USER%%` / `%%REPO%%` /
+  `%%UV%%`); `deploy/install.sh` fills in this host's real user/paths at install
+  time, so no username or home path lands in the tree.
+- **In a fresh clone, run `uvx pre-commit install`** to enable the gitleaks hook.
+  The repo also has GitHub secret-scanning + push-protection and Dependabot alerts
+  enabled.
