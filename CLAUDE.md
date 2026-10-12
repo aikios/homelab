@@ -28,25 +28,43 @@ verify it live before starting the next.
   service's own `.env`. HA home coordinates come from a sudo-read of
   ~/services/homeassistant/config/.storage/core.config.
 
-## Status / next
-Scaffold done. **rain-alert** and **topic-watcher** migrated into services/ and
-running from this checkout on the server (verified live). core.notify has the
-Discord REST primitives and core.ui adds the shared Discord UI layer (Messenger
-protocol + Discord class) the notifiers program against; core.ha/config reconciled.
-Deploy model:
-`deploy/install.sh <svc>` runs `uv sync --all-packages`; units run via
-`uv run --no-sync` so all workspace members coexist in the one venv.
-**mediabot** is also migrated (faithful lift-and-shift into services/mediabot,
-resident `mediabot.service` running from the repo; shared creds in secrets/
-shared.env, service keys in its own .env). Its pre-existing ruff/ty findings were
-left as-is (debt, not from the migration).
-All six third-party **stacks** are exported to stacks/ (compose + scrubbed
-.env.example; a stacks/.gitignore whitelists only compose/examples/docs). The
-**hosts inventory** (deploy/hosts/hosts.local.yml, gitignored) + `deploy/host-up.sh
-[host]` give one-command host reproduction (install.sh per service, compose up per
-stack). All 6 migration-plan steps are done.
-NEXT: add the GitHub remote (public, hardened) when ready. Note: the repo stacks/
-are config captures — the containers still run from ~/services/<stack> on
-the server (host-up's stack portion is for a fresh host; running it here would
-clash with the live containers by container_name). The old ~/services owner dirs
-remain as fallback — retire once confident.
+## Status / handoff
+**All 6 migration-plan steps are done and the repo is live, public, and hardened
+at `github.com/aikios/homelab`.** Everything below is the state to resume from.
+
+What exists and runs live on the server (all verified):
+- **services/** — rain-alert (08:00 timer), topic-watcher (2s `--listen` resident
+  + 09:00 news timer), mediabot (resident Discord Tool-Runner bot). All run from
+  this checkout via systemd; mediabot's agent turn was smoke-tested on anthropic
+  1.13.0.
+- **libs/core** — config / ha / notify (Discord REST primitives) / ui (the shared
+  `Messenger` protocol + `Discord` REST client the notifiers program against).
+- **stacks/** — 6 third-party apps as compose + scrubbed `.env.example` (config
+  captures only; the containers still run from `~/services/<stack>`, NOT the repo —
+  running host-up's stack portion here would clash by `container_name`).
+- **deploy/** — `install.sh <svc>` (`uv sync --all-packages`, then installs units;
+  units run `uv run --no-sync` so all members coexist in one venv) and
+  `host-up.sh [host]` (reads `deploy/hosts/hosts.local.yml`).
+
+Key mechanics to remember:
+- **Units are host-agnostic templates** (`%%DEPLOY_USER%%` / `%%REPO%%` / `%%UV%%`);
+  `install.sh` substitutes real values at install time. Edit the template, re-run
+  `install.sh`, not the installed `/etc/systemd/system/*` copies.
+- **Secrets:** cross-service creds in gitignored `secrets/shared.env` (via
+  `HOMELAB_SHARED_ENV`); per-service keys in `services/<svc>/.env`; stack creds in
+  `stacks/<app>/.env`; host inventory in `deploy/hosts/hosts.local.yml`. Repo is
+  fully de-personalized (no names/IPs/coords/usernames); history was squashed clean.
+- **Git remote** is HTTPS via gh's credential helper (no SSH key on this host). The
+  gh token has `repo` scope.
+
+Open follow-ups (none blocking; also in SPEC.md "Open / to decide later"):
+- mediabot carries **pre-existing ruff (66) / ty (16)** debt — not from the
+  migration; clean up as its own pass (touches live code).
+- Two secret-scanning sub-toggles (non-provider patterns, validity checks) didn't
+  flip via the old gh's API — enable in GitHub Settings → Code security if wanted.
+- **Retire the old `~/services/{rain-alert,topic-watcher,mediabot}` dirs** (now
+  orphaned fallbacks) once fully confident; the `~/services/<stack>` compose dirs
+  remain the authoritative/running copies for the containers.
+- Optional: a `Messenger` adapter so mediabot's discord.py bot presents the same
+  outbound interface (deferred — its Gateway event loop isn't a `Messenger`).
+- Optional: LICENSE + repo topics for the public repo.
