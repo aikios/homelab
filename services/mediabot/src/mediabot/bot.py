@@ -14,7 +14,7 @@ from pathlib import Path
 import anthropic
 import discord
 
-from . import costmeter, ctx, jobs, organize, subs
+from . import costmeter, ctx, jobs, organize, qbmonitor, subs
 from .agent import run_turn
 from .clients.arr import Radarr, Sonarr
 from .clients.jellyfin import Jellyfin
@@ -327,6 +327,10 @@ def _poll_once() -> None:
         _reconcile_subs()
     except Exception:  # noqa: BLE001
         traceback.print_exc()
+    try:
+        qbmonitor.tick(_notify_owner)      # qBittorrent-wide status (all torrents)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
     open_jobs = jobs.open_jobs()
     if not open_jobs:
         return
@@ -355,10 +359,11 @@ def _poll_once() -> None:
         in_arr_q = any(j.title.split(" (")[0].lower() in q.lower() for q in (rq | sq))
         if t and t["progress"] < 1.0:
             pct = t["progress"] * 100
+            # progress pings come from the qBittorrent-wide monitor now; keep the
+            # job's last_report fresh for job_status.
             if abs(pct - j.detail.get("last_pct", -9)) >= 10:
                 jobs.update(j.id, last_pct=pct,
                             last_report=f"downloading {pct:.0f}%")
-                _notify(j.channel_id, f"⬇️ {j.title}: {pct:.0f}%")
             continue
         # download complete (or gone) and not stuck in arr import queue -> imported
         if not in_arr_q:
@@ -437,7 +442,6 @@ def _handle_magnet(j: jobs.Job, torrents: list[dict]) -> None:
         pct = prog * 100
         if abs(pct - j.detail.get("last_pct", -9)) >= 10:
             jobs.update(j.id, last_pct=pct, last_report=f"downloading {pct:.0f}%")
-            _notify(j.channel_id, f"⬇️ {j.title}: {pct:.0f}%")
         return
     _finish_magnet(j, t)
 

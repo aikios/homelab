@@ -155,6 +155,26 @@ himself, `add_magnet` bypasses the arrs entirely:
 Note: magnet imports are **not** tracked by Radarr/Sonarr (they never grabbed them),
 so they appear in Jellyfin but not in the arr library views.
 
+## qBittorrent status monitor
+
+`qbmonitor.tick()` runs inside the bot poller every cycle (before the per-job
+loop, so it runs even with no bot jobs open) and watches EVERY torrent in
+qBittorrent, however it was added — bot grab/magnet, Radarr/Sonarr, or the qBit
+UI. It DMs the owner on four edges, keyed by infohash in `state/qbmon.json`
+(so each fires once and survives restarts; the first run after a fresh state file
+records existing torrents silently — no `added` burst):
+
+- **added** — a new infohash appears.
+- **progress** — a consolidated summary of all active downloads, every
+  `QBMON_SUMMARY_MIN` min (default 5), only while something is downloading.
+- **stalled** — no progress for `QBMON_STALL_MIN` min (default 10); warns once
+  per stall episode, re-arms when it resumes.
+- **completed** — reaches 100%; suppressed when an open bot job already tracks it
+  (that job posts the richer `imported into library` message instead).
+
+This replaces the old per-job incremental progress pings (removed) with one
+qBit-wide view. Per-job handlers still post import + subtitle results.
+
 ## Tool catalog (v1)
 
 Read:
