@@ -40,8 +40,14 @@ class Qbit:
     def version(self) -> str:
         return self._call("GET", "/api/v2/app/version").text
 
-    def torrents(self) -> list[dict[str, Any]]:
-        return self._call("GET", "/api/v2/torrents/info").json()
+    def torrents(self, hashes: list[str] | None = None,
+                 tag: str | None = None) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if hashes:
+            params["hashes"] = "|".join(hashes)
+        if tag is not None:
+            params["tag"] = tag
+        return self._call("GET", "/api/v2/torrents/info", params=params).json()
 
     def transfer_info(self) -> dict[str, Any]:
         return self._call("GET", "/api/v2/transfer/info").json()
@@ -61,9 +67,12 @@ class Qbit:
         self._call("POST", "/api/v2/torrents/delete",
                    data={"hashes": "|".join(hashes), "deleteFiles": str(delete_files).lower()})
 
-    def add_url(self, url: str, category: str, save_path: str = "") -> None:
-        self._call("POST", "/api/v2/torrents/add",
-                   data={"urls": url, "category": category, "savepath": save_path})
+    def add_url(self, url: str, category: str, save_path: str = "",
+                tags: str = "") -> None:
+        data = {"urls": url, "category": category, "savepath": save_path}
+        if tags:
+            data["tags"] = tags
+        self._call("POST", "/api/v2/torrents/add", data=data)
 
 
 if __name__ == "__main__":

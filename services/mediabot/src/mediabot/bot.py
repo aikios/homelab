@@ -14,7 +14,7 @@ from pathlib import Path
 import anthropic
 import discord
 
-from . import costmeter, ctx, jobs, subs
+from . import costmeter, ctx, jobs, organize, subs
 from .agent import run_turn
 from .clients.arr import Radarr, Sonarr
 from .clients.jellyfin import Jellyfin
@@ -346,6 +346,9 @@ def _poll_once() -> None:
             if fresh and fresh.state != "open":
                 _notify(j.channel_id, f"✅ subtitle burn done: {j.title}")
             continue
+        if j.kind == "magnet":
+            _handle_magnet(j, torrents)
+            continue
         if j.kind != "download":
             continue
         t = _match_torrent(torrents, j.title)
@@ -393,7 +396,7 @@ def _finish_download(j) -> None:  # noqa: ANN001
 def _imported_path(j) -> str | None:  # noqa: ANN001
     key = j.title.split(" (")[0].lower()
     try:
-        if j.detail.get("kind") == "movie":
+        if j.detail.get("media_kind") == "movie":
             for m in Radarr().list():
                 if key in m["title"].lower() and m.get("hasFile"):
                     mf = m.get("movieFile") or {}
@@ -408,6 +411,68 @@ def _imported_path(j) -> str | None:  # noqa: ANN001
     except Exception:  # noqa: BLE001
         pass
     return None
+
+
+def _match_magnet(torrents: list[dict], j: jobs.Job) -> dict | None:
+    tag = j.detail.get("tag")
+    ih = (j.detail.get("infohash") or "").lower()
+    for t in torrents:
+        tags = [x.strip() for x in (t.get("tags") or "").split(",")]
+        if tag and tag in tags:
+            return t
+        if ih and t.get("hash", "").lower() == ih:
+            return t
+    return None
+
+
+def _handle_magnet(j: jobs.Job, torrents: list[dict]) -> None:
+    t = _match_magnet(torrents, j)
+    if t is None:
+        if time.time() - j.created > 2 * 3600:
+            jobs.update(j.id, state="error", last_report="torrent not found")
+            _notify(j.channel_id, f"⚠️ {j.title}: never showed up in qBittorrent.")
+        return
+    prog = t.get("progress", 0) or 0
+    if prog < 1.0:
+        pct = prog * 100
+        if abs(pct - j.detail.get("last_pct", -9)) >= 10:
+            jobs.update(j.id, last_pct=pct, last_report=f"downloading {pct:.0f}%")
+            _notify(j.channel_id, f"⬇️ {j.title}: {pct:.0f}%")
+        return
+    _finish_magnet(j, t)
+
+
+def _finish_magnet(j: jobs.Job, t: dict) -> None:
+    content = t.get("content_path") or t.get("save_path") or ""
+    lang = j.detail.get("subs_lang", "en")
+    mode = j.detail.get("subs_mode", "soft")
+    try:
+        res = organize.import_download(content, title_hint=j.detail.get("title_hint"),
+                                       kind_hint=j.detail.get("media_kind", "auto"))
+    except Exception as e:  # noqa: BLE001
+        jobs.update(j.id, state="error", last_report=f"import failed: {e}")
+        _notify(j.channel_id, f"⚠️ {j.title}: import failed — {e}\n(files left at {content})")
+        return
+    try:
+        Qbit().delete([t["hash"]], delete_files=False)   # files already moved out
+    except Exception:  # noqa: BLE001
+        pass
+    lines = [f"✅ **{j.title}** imported → {res['library_path']} ({res['count']} file(s))"]
+    for p in res["imported"]:
+        try:
+            r = _attach_subs(p, lang, mode, j.channel_id)
+            lines.append(f"  • {Path(p).name}: {r}")
+        except Exception as e:  # noqa: BLE001
+            lines.append(f"  • {Path(p).name}: subtitle step failed — {e}")
+    if res.get("skipped"):
+        lines.append("  skipped (couldn't place): " + ", ".join(res["skipped"]))
+    try:
+        Jellyfin().refresh()
+        lines.append("Jellyfin scan triggered.")
+    except Exception:  # noqa: BLE001
+        pass
+    jobs.update(j.id, state="done", last_report=f"imported {res['count']} file(s)")
+    _notify(j.channel_id, "\n".join(lines))
 
 
 def _notify(channel_id: int, text: str) -> None:

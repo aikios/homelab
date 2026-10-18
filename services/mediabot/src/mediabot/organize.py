@@ -148,3 +148,97 @@ def import_file(path: str, ident: Identity, copy: bool = False) -> dict:
     junk = clean_junk(str(src)) if src.is_dir() else []
     return {"library_path": str(folder), "files": moved, "cleaned": junk,
             "identity": ident.__dict__}
+
+
+# ───────────────  full-download import (single file OR season pack)  ───────────────
+
+def _video_files(path: Path) -> list[Path]:
+    """All real video files under a download (dir or file), samples excluded."""
+    if path.is_file():
+        return [path] if path.suffix.lower() in VIDEO_EXT else []
+    return sorted(
+        p for p in path.rglob("*")
+        if p.is_file() and p.suffix.lower() in VIDEO_EXT
+        and "sample" not in p.name.lower()
+    )
+
+
+def _carry_subs(vid: Path, folder: Path, base: str, op, moved: list[str]) -> None:
+    """Move/copy sidecar subs that belong to THIS video (strict stem match, so a
+    season pack sharing one folder does not cross-wire subtitles between episodes)."""
+    for sib in vid.parent.iterdir():
+        if sib.suffix.lower() not in SUB_EXT or not sib.is_file():
+            continue
+        if not sib.stem.lower().startswith(vid.stem.lower()):
+            continue
+        lang = ""
+        m = re.search(r"\.([a-z]{2,3})(\.forced)?" + re.escape(sib.suffix) + r"$", sib.name, re.I)
+        if m:
+            lang = "." + m.group(1).lower() + (m.group(2) or "")
+        suffix = lang or ".und"
+        dest_sub = str(folder / (base + suffix + sib.suffix.lower()))
+        op(str(sib), dest_sub)
+        moved.append(dest_sub)
+
+
+def import_download(path: str, title_hint: str | None = None, kind_hint: str = "auto",
+                    copy: bool = False) -> dict:
+    """File a finished download into the library. Unlike import_file this handles a
+    multi-episode season pack: every episode video is placed as Title - SxxExx.ext.
+    For a movie, the biggest video is filed as Title (Year). Returns a result dict
+    with every imported path so the caller can subtitle each one."""
+    src = Path(path)
+    vids = _video_files(src)
+    if not vids:
+        raise ValueError(f"no video file found under {path}")
+
+    ident = identify(path, title_hint)
+    if kind_hint == "movie":
+        ident.kind = "movie"
+    elif kind_hint in ("show", "episode"):
+        ident.kind = "episode"
+
+    op = shutil.copy2 if copy else shutil.move
+    moved: list[str] = []
+    imported: list[str] = []
+    skipped: list[str] = []
+
+    if ident.kind == "movie":
+        vid = max(vids, key=lambda p: p.stat().st_size)
+        folder = Path(CFG.media_movies) / f"{_safe(ident.title)} ({ident.year})"
+        base = f"{_safe(ident.title)} ({ident.year})"
+        folder.mkdir(parents=True, exist_ok=True)
+        dest = folder / f"{base}{vid.suffix.lower()}"
+        op(str(vid), str(dest))
+        moved.append(str(dest)); imported.append(str(dest))
+        _carry_subs(vid, folder, base, op, moved)
+        library_path = str(folder)
+    else:
+        series = _safe(ident.title)
+        library_path = str(Path(CFG.media_shows) / series)
+        for vid in vids:
+            g = guessit(vid.name)
+            season = g.get("season") if isinstance(g.get("season"), int) else (ident.season or 1)
+            ep = g.get("episode")
+            if isinstance(ep, list):
+                ep = ep[0] if ep else None
+            if not isinstance(ep, int):
+                skipped.append(vid.name)
+                continue
+            folder = Path(CFG.media_shows) / series / f"Season {season:02d}"
+            base = f"{series} - S{season:02d}E{ep:02d}"
+            folder.mkdir(parents=True, exist_ok=True)
+            dest = folder / f"{base}{vid.suffix.lower()}"
+            op(str(vid), str(dest))
+            moved.append(str(dest)); imported.append(str(dest))
+            _carry_subs(vid, folder, base, op, moved)
+
+    junk = clean_junk(str(src)) if src.is_dir() else []
+    if src.is_dir():
+        try:
+            src.rmdir()
+        except OSError:
+            pass
+    return {"library_path": library_path, "files": moved, "imported": imported,
+            "skipped": skipped, "cleaned": junk, "identity": ident.__dict__,
+            "count": len(imported)}

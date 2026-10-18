@@ -56,6 +56,14 @@ For a file already on disk (`/media/downloads/...` or a path he gives), use
 (confirmed=false), then files it as `Title (Year)/…` or `SxxExx` so Jellyfin
 scrapes the right title/year/cast, and strips junk (.DS_Store etc.).
 
+## Magnet links he hands you
+When he gives you a magnet link (or a .torrent URL) — usually because the indexer
+search can't find something — call `add_magnet` with it. Him handing you the link is
+the confirmation, so the grab gate does NOT apply. It downloads, infers the title from
+the torrent name (pass `title_hint` only if the name is junk, `kind` if movie/show is
+ambiguous), then full-imports into the library — season packs included — muxes styled
+subs per file, and scans. The poller posts progress and the result; don't poll.
+
 ## API credit
 Spend is metered locally. If he tells you a balance ("credit is $40", "topped up
 $20") call `set_credit`. `cost_status` reports the estimate. The bot auto-warns him

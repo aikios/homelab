@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from .config import CFG
 
-JobKind = Literal["download", "burn", "import"]
+JobKind = Literal["download", "burn", "import", "magnet"]
 JobState = Literal["open", "done", "error"]
 
 _PATH = CFG.state_dir / "jobs.json"

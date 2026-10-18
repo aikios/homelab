@@ -6,11 +6,15 @@ relay them straight to Discord.
 """
 from __future__ import annotations
 
+import base64
 import json
+import re
 import shlex
 import subprocess
 import time
+import uuid
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 from anthropic import beta_tool
 
@@ -230,6 +234,67 @@ def get(title: str, kind: str = "auto", quality: str = "1080p", audio: str = "en
 
 # ─────────────────────────────  MUTATE  ─────────────────────────────
 
+MANUAL_CATEGORY = "manual"
+_BTIH = re.compile(r"xt=urn:btih:([0-9a-zA-Z]+)", re.I)
+
+
+def _magnet_info(magnet: str) -> tuple[str | None, str | None]:
+    """(infohash hex lowercase, display-name) from a magnet link, else (None, None)."""
+    m = _BTIH.search(magnet)
+    if not m:
+        return None, None
+    ih = m.group(1)
+    if len(ih) == 32:                       # base32 infohash -> hex
+        try:
+            ih = base64.b32decode(ih.upper()).hex()
+        except Exception:  # noqa: BLE001
+            return None, None
+    ih = ih.lower()
+    dn = None
+    d = re.search(r"[?&]dn=([^&]+)", magnet)
+    if d:
+        dn = unquote_plus(d.group(1))
+    return ih, dn
+
+
+@beta_tool
+def add_magnet(magnet: str, title_hint: str | None = None, kind: str = "auto",
+               subs_lang: str = "en", subs_mode: str = "soft") -> str:
+    """Download a magnet link (or http[s] .torrent URL) the owner found himself (e.g. on
+    1337x, when the indexer search can't find it) and FULL-import it into the library:
+    download -> identify from the torrent title -> file as Title (Year) / Season NN with
+    SxxExx names (handles season packs) -> mux styled subs per file -> Jellyfin scan.
+
+    Him handing you the link IS the go-ahead: the grab confirmation gate does not apply.
+    The poller posts progress and the final result; do not poll it yourself.
+
+    Args:
+        magnet: a magnet:?xt=urn:btih:... link, or an http(s) URL to a .torrent file.
+        title_hint: override the parsed title only when the torrent name is garbage.
+        kind: "movie", "show", or "auto" (infer from the torrent title).
+        subs_lang: ISO language for the styled subtitle track (default en).
+        subs_mode: "soft" (mux, default) or "burn".
+    """
+    magnet = magnet.strip()
+    is_url = magnet.lower().startswith(("http://", "https://"))
+    if not is_url and not magnet.lower().startswith("magnet:"):
+        return "that's not a magnet link or a .torrent URL."
+    ih, dn = (None, None) if is_url else _magnet_info(magnet)
+    if not is_url and not ih:
+        return "couldn't parse an infohash out of that magnet."
+    tag = "mb-" + uuid.uuid4().hex[:8]
+    q = Qbit()
+    q.add_category(MANUAL_CATEGORY, CFG.media_downloads)
+    q.add_url(magnet, category=MANUAL_CATEGORY, save_path=CFG.media_downloads, tags=tag)
+    label = title_hint or dn or (ih[:12] if ih else "torrent")
+    j = jobs.create("magnet", label, ctx.channel_id(), tag=tag, infohash=ih,
+                    media_kind=kind, title_hint=title_hint, subs_lang=subs_lang,
+                    subs_mode=subs_mode)
+    _log("add_magnet", infohash=ih, tag=tag, label=label, kind=kind, job=j.id)
+    return (f"Added **{label}** -> qBittorrent (job {j.id}). I'll download it, file it "
+            f"into the library with {subs_lang} subs, and post here when it's in Jellyfin.")
+
+
 @beta_tool
 def grab(kind: str, guid: str, indexer_id: int, target_title: str,
          subs_lang: str = "en", subs_mode: str = "soft") -> str:
@@ -256,7 +321,7 @@ def grab(kind: str, guid: str, indexer_id: int, target_title: str,
             m["monitored"] = True
             app._j("PUT", f"/movie/{m['id']}", json=m)  # noqa: SLF001
     res = app.grab_release(guid, indexer_id)
-    j = jobs.create("download", target_title, channel_id, kind=kind, guid=guid,
+    j = jobs.create("download", target_title, channel_id, media_kind=kind, guid=guid,
                     subs_lang=subs_lang, subs_mode=subs_mode)
     _log("grab", title=target_title, guid=guid, indexer_id=indexer_id, job=j.id)
     return (f"Grabbed **{target_title}** → qBittorrent (job {j.id}). "
@@ -491,6 +556,6 @@ def run_shell(cmd: str, why: str) -> str:
 
 ALL_TOOLS = [
     library_report, queue_status, disk_report, find, search_releases, get,
-    grab, import_file, attach_subs, reclaim_space, jellyfin_scan, remove,
+    grab, add_magnet, import_file, attach_subs, reclaim_space, jellyfin_scan, remove,
     job_status, cost_status, set_credit, run_shell,
 ]

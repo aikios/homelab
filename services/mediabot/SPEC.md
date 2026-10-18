@@ -127,6 +127,34 @@ without the owner confirming the specific release first. The flow is always:
 The system prompt makes this non-negotiable and forbids `grab` before a confirm in
 the same conversation. `get` is a convenience that runs steps 1–3 only.
 
+`add_magnet` is **exempt** from this gate: the owner handing over a magnet link (or
+`.torrent` URL) is itself the confirmation of exactly what to download. See
+"Manual magnet import" below.
+
+## Manual magnet import
+
+The indexer search (step 2 above) only surfaces releases Radarr/Sonarr can parse and
+match to an exact title+year(+season/episode) under the requested quality profile.
+Well-seeded releases with nonstandard names, year mismatches, season-pack labels, or
+off-profile quality are dropped by the arr before the owner sees them — even though
+Prowlarr's indexers (incl. 1337x) return them. When the owner finds such a release
+himself, `add_magnet` bypasses the arrs entirely:
+
+1. The magnet (or `.torrent` URL) is added to qBittorrent under category `manual`
+   (save path `MEDIA_DOWNLOADS`), tagged `mb-<rand>` so the poller can track it by
+   tag (robust against name/metadata resolution lag); infohash is a fallback match.
+2. A `magnet` job is registered (`media_kind`, `title_hint`, subs prefs in detail).
+3. The poller reports progress, then on completion runs
+   `organize.import_download()` — which, unlike `import_file`, files **every**
+   episode of a season pack as `Title - SxxExx.ext` (movies: biggest video as
+   `Title (Year)`), identifying via guessit + arr metadata lookup from the torrent
+   name. It then muxes styled subs per imported file, removes the now-emptied
+   torrent from qBittorrent (files were moved, not copied — avoids the dangling-seed
+   `file_open` errors), and triggers a Jellyfin scan.
+
+Note: magnet imports are **not** tracked by Radarr/Sonarr (they never grabbed them),
+so they appear in Jellyfin but not in the arr library views.
+
 ## Tool catalog (v1)
 
 Read:
@@ -144,6 +172,10 @@ Mutate (all logged to `logs/actions.jsonl`):
 - `grab(release_guid or indexer_id+guid, kind, target_title)` — send that exact
   release to qBittorrent (via Prowlarr `/api/v1/search` grab or arr release push).
   **Only after the owner confirms.** Registers a job.
+- `add_magnet(magnet, title_hint=None, kind=auto, subs_lang=en, subs_mode=soft)` —
+  add a magnet/`.torrent` URL the owner found himself and full-import it into the
+  library (handles season packs). Gate-exempt. Registers a `magnet` job. See
+  "Manual magnet import".
 - `get(title, kind=auto, ...)` — convenience: runs `find` + `search_releases` and
   returns the candidates for confirmation. Does **not** grab.
 - `import_file(path, kind=auto, title_hint=None)` — file already on disk: guessit
