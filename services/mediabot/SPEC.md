@@ -165,8 +165,11 @@ UI. It DMs the owner on four edges, keyed by infohash in `state/qbmon.json`
 records existing torrents silently — no `added` burst):
 
 - **added** — a new infohash appears.
-- **progress** — a consolidated summary of all active downloads, every
-  `QBMON_SUMMARY_MIN` min (default 5), only while something is downloading.
+- **progress** — a summary of active downloads every `QBMON_SUMMARY_MIN` min
+  (default 5). A download gaining < `QBMON_FAST_PCT` (1%) in a window is a
+  trickle: it's held out of the summary until it accumulates `QBMON_SLOW_STEP_PCT`
+  (5%) since last shown, so a near-dead torrent alerts per 5% rather than every
+  5 min at ~0%.
 - **stalled** — no progress for `QBMON_STALL_MIN` min (default 10); warns once
   per stall episode, re-arms when it resumes.
 - **completed** — reaches 100%; suppressed when an open bot job already tracks it

@@ -32,6 +32,12 @@ _PATH = CFG.state_dir / "qbmon.json"
 
 SUMMARY_SECS = int(os.getenv("QBMON_SUMMARY_MIN", "5")) * 60
 STALL_SECS = int(os.getenv("QBMON_STALL_MIN", "10")) * 60
+# A download is reported in a summary when it gains >= FAST_STEP_PCT in the last
+# summary window (~QBMON_SUMMARY_MIN min). A slower one (a trickle like a 1-seed
+# torrent) is held back and reported only once it accumulates SLOW_STEP_PCT since it
+# was last shown — so it alerts per 5% instead of every 5 minutes showing ~0%.
+FAST_STEP_PCT = float(os.getenv("QBMON_FAST_PCT", "1"))
+SLOW_STEP_PCT = float(os.getenv("QBMON_SLOW_STEP_PCT", "5"))
 
 # qBittorrent states that mean "this torrent is trying to download"
 _DL_STATES = {"downloading", "forcedDL", "metaDL", "stalledDL", "queuedDL",
@@ -116,7 +122,8 @@ def tick(notify: Callable[[str], None], torrents: list[dict] | None = None,
 
         if rec is None:                                   # first time we see it
             seen[h] = {"name": name, "pct": pct, "pct_ts": now, "state": state,
-                       "done": pct >= 100, "stalled": False}
+                       "done": pct >= 100, "stalled": False,
+                       "summary_pct": pct, "report_pct": pct}
             if seeded and pct < 100 and state not in _PAUSED:
                 msgs.append(f"➕ added: {name}")
             continue
@@ -150,13 +157,27 @@ def tick(notify: Callable[[str], None], torrents: list[dict] | None = None,
     active = [t for t in torrents
               if (t.get("progress") or 0) < 1.0 and t.get("state") in _DL_STATES]
     if active and now - st.get("last_summary_ts", 0) >= SUMMARY_SECS:
-        lines = [f"📥 downloads ({len(active)}):"]
-        for t in sorted(active, key=lambda x: -(x.get("progress") or 0)):
-            seeds = t.get("num_complete", t.get("num_seeds", 0))
-            lines.append(f"  {(t.get('progress') or 0) * 100:5.1f}%  "
-                         f"{_fmt_bytes(t.get('dlspeed', 0))}/s  {seeds}s  "
-                         f"{_fmt_eta(t.get('eta', 0))}  {t.get('name', '?')[:48]}")
-        msgs.append("\n".join(lines))
+        include = []
+        for t in active:
+            rec = seen.get(t.get("hash", "").lower())
+            if rec is None:
+                continue
+            cur_pct = (t.get("progress") or 0) * 100
+            window_gain = cur_pct - rec.get("summary_pct", cur_pct)
+            total_gain = cur_pct - rec.get("report_pct", cur_pct)
+            # fast movers report every window; slow movers only per SLOW_STEP_PCT
+            if window_gain >= FAST_STEP_PCT or total_gain >= SLOW_STEP_PCT:
+                include.append(t)
+                rec["report_pct"] = cur_pct
+            rec["summary_pct"] = cur_pct
+        if include:
+            lines = [f"📥 downloads ({len(include)}):"]
+            for t in sorted(include, key=lambda x: -(x.get("progress") or 0)):
+                seeds = t.get("num_complete", t.get("num_seeds", 0))
+                lines.append(f"  {(t.get('progress') or 0) * 100:5.1f}%  "
+                             f"{_fmt_bytes(t.get('dlspeed', 0))}/s  {seeds}s  "
+                             f"{_fmt_eta(t.get('eta', 0))}  {t.get('name', '?')[:48]}")
+            msgs.append("\n".join(lines))
         st["last_summary_ts"] = now
 
     st["t"] = seen
