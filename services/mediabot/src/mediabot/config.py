@@ -85,6 +85,9 @@ class Config:
     subs_margin_v: int
     subs_autosync: bool
 
+    # --- debug ---
+    debug_sock: bool  # expose a local unix socket to inject "DMs" without Discord
+
 
 def load() -> Config:
     root = ROOT
@@ -129,6 +132,7 @@ def load() -> Config:
         subs_outline_w=_get("SUBS_OUTLINE_W", "2.6"),
         subs_margin_v=int(_get("SUBS_MARGIN_V", "40")),
         subs_autosync=_get("SUBS_AUTOSYNC", "1") not in ("0", "false", "False", ""),
+        debug_sock=_get("MEDIABOT_DEBUG_SOCK", "1") not in ("0", "false", "False", ""),
     )
 
 

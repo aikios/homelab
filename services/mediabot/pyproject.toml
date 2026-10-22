@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 mediabot = "mediabot.bot:main"
+mediabot-dm = "mediabot.debug:main"
 
 [build-system]
 requires = ["hatchling"]
