@@ -1,0 +1,18 @@
+[Unit]
+Description=sports-api — clean-stream extractor + HLS proxy for the TV
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/sports-api
+# SPORTS_API_PORT / SPORTS_API_HOST live in the gitignored .env (per host).
+EnvironmentFile=%%REPO%%/services/sports-api/.env
+# Dedicated playwright venv (see bootstrap.sh), NOT the shared uv workspace venv.
+# Both hosts put it at /home/<user>/.venvs/sports.
+ExecStart=/home/%%DEPLOY_USER%%/.venvs/sports/bin/python3 %%REPO%%/services/sports-api/src/sports_api.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
