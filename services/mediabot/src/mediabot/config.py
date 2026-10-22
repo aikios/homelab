@@ -83,6 +83,7 @@ class Config:
     subs_italic: bool
     subs_outline_w: str
     subs_margin_v: int
+    subs_autosync: bool
 
 
 def load() -> Config:
@@ -127,6 +128,7 @@ def load() -> Config:
         subs_italic=_get("SUBS_ITALIC", "1") not in ("0", "false", "False", ""),
         subs_outline_w=_get("SUBS_OUTLINE_W", "2.6"),
         subs_margin_v=int(_get("SUBS_MARGIN_V", "40")),
+        subs_autosync=_get("SUBS_AUTOSYNC", "1") not in ("0", "false", "False", ""),
     )
 
 
