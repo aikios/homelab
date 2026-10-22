@@ -1,0 +1,325 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Sports</title>
+<style>
+body { background-color:#dfe3ec;
+  background-image:repeating-linear-gradient(180deg, rgba(255,255,255,.34) 0 3px, rgba(255,255,255,0) 3px 6px);
+  color:#1d2740; overflow:hidden; margin:0; -webkit-font-smoothing:antialiased;
+  font-family:"Lucida Grande","Lucida Sans","Helvetica Neue",Helvetica,Arial,sans-serif; }
+#bar { position:fixed; top:0; left:0; right:0; height:64px; padding:0 36px;
+  background:linear-gradient(#d6dae4,#b8becb 55%,#a4abba); border-bottom:1px solid #8891a3;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 2px 8px rgba(20,30,60,.35);
+  display:flex; align-items:center; z-index:5; }
+#bar .t { flex:1; text-align:center; color:#1f2740; font-size:28px; font-weight:bold;
+  text-shadow:0 1px 0 rgba(255,255,255,.65); }
+#tabs { position:fixed; top:76px; left:0; right:0; height:48px; padding:6px 30px 0;
+  white-space:nowrap; overflow:hidden; z-index:5; }
+.tab { display:inline-block; margin-right:14px; padding:6px 26px; font-size:19px;
+  background:linear-gradient(#f4f6fb,#ccd2e2); border-radius:999px; color:#41507a;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 1px 3px rgba(20,30,60,.3); }
+.tab.sel { background:linear-gradient(#8fc0ff,#3f83e4); color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 2px 6px rgba(0,20,60,.4); }
+#wrap { position:fixed; top:136px; bottom:0; left:0; right:0; overflow-y:auto; }
+.row { display:flex; align-items:center; margin:8px 32px; padding:12px 20px;
+  background:linear-gradient(#f4f6fb,#d4d9e6); border:1px solid rgba(120,130,160,.45); border-radius:12px;
+  cursor:pointer; color:#1d2740;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 2px 6px rgba(20,30,60,.2); }
+.row .badge { min-width:92px; text-align:center; font-size:15px; font-weight:bold;
+  padding:5px 10px; border-radius:999px; margin-right:20px; background:linear-gradient(#e3e7f0,#b9c2d4); color:#41507a;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7); }
+.row .badge.live { background:linear-gradient(#e05a5a,#b82020); color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35); }
+.row .ti { font-size:22px; flex:1; }
+.row .st { font-size:17px; color:#41507a; margin-right:16px; }
+.row .dt { font-size:15px; color:#6a7590; max-width:420px; text-align:right; }
+.row.focused, .srow.focused { outline:none;
+  box-shadow:0 0 0 4px rgba(63,131,228,.85), 0 0 18px rgba(63,131,228,.5); }
+#sources { position:fixed; top:76px; bottom:0; left:0; right:0; overflow-y:auto; display:none; }
+#shead { font-size:20px; font-weight:bold; color:#41507a; padding:12px 36px 2px; }
+.srow { display:flex; align-items:center; margin:8px 36px; padding:12px 20px;
+  background:linear-gradient(#f4f6fb,#d4d9e6); border:1px solid rgba(120,130,160,.45); border-radius:12px;
+  cursor:pointer; font-size:21px; color:#1d2740;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 2px 6px rgba(20,30,60,.2); }
+.srow .mark { min-width:38px; font-size:22px; margin-right:16px; color:#2e8b2e; }
+.srow.dead .mark { color:#8d97ad; }
+.srow.dead .lbl { color:#8d97ad; }
+.srow .dom { color:#6a7590; font-size:17px; margin-left:auto; padding-left:20px; }
+#player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
+#v { width:100%; height:100%; object-fit:contain; }
+#pov { position:fixed; top:20px; right:20px; background:#000c; color:#fff; font-size:22px;
+  padding:12px 24px; border-radius:10px; z-index:13; display:none; }
+#busy { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(10,15,30,.72); z-index:20;
+  display:none; align-items:center; justify-content:center; flex-direction:column; }
+.spin { width:64px; height:64px; border:6px solid #b9c2d4; border-top-color:#3f83e4;
+  border-radius:50%; animation:sp 1s linear infinite; }
+@keyframes sp { to { transform:rotate(360deg); } }
+#busy .msg { margin-top:26px; font-size:26px; font-weight:bold; color:#eef2f8; }
+#toast { position:fixed; bottom:36px; left:50%; transform:translateX(-50%);
+  background:linear-gradient(#eef1f8,#c9d0e0); color:#1d2740; font-weight:bold; font-size:24px;
+  padding:14px 34px; border-radius:12px;
+  box-shadow:0 8px 30px rgba(0,10,40,.45), inset 0 1px 0 #fff; z-index:25; display:none; }
+</style></head><body>
+<script>(function () { var w = window.innerWidth || screen.width || 1280;
+  if (w > 1600) document.body.style.zoom = String(w / 1280); })();</script>
+<div id="bar"><div class="t" id="title">Sports</div></div>
+<div id="tabs"></div>
+<div id="wrap"></div>
+<div id="sources"><div id="shead"></div><div id="slist"></div></div>
+<div id="player"><video id="v" autoplay playsinline></video></div>
+<div id="pov"></div>
+<div id="busy"><div class="spin"></div><div class="msg" id="bmsg">Loading schedule…</div></div>
+<div id="toast"></div>
+<script src="hls.light.min.js"></script>
+<script>
+var API = "http://" + location.hostname + ":8100";
+var BACKURL = (function () {
+  var m = location.search.match(/[?&]back=([^&]+)/);
+  if (m) return decodeURIComponent(m[1]);
+  if (document.referrer) return document.referrer;
+  return null;
+})();
+var view = "list", games = [], sel = 0, curEvent = null, curTitle = "";
+var tabs = [], tab = 0, rows = [];
+var prep = null, psrc = 0, cands = [], candIdx = 0, hls = null, povT = null;
+
+function goBack() { location.href = BACKURL || "jellyfin.html"; }
+function toast(m, ms) {
+  var t = document.getElementById("toast");
+  t.textContent = m; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = "none"; }, ms || 2500);
+}
+function busy(on, msg) {
+  document.getElementById("busy").style.display = on ? "flex" : "none";
+  if (msg) document.getElementById("bmsg").textContent = msg;
+}
+function getJSON(u, timeout) {
+  return new Promise(function (res, rej) {
+    var x = new XMLHttpRequest();
+    x.timeout = timeout || 20000;
+    x.open("GET", u, true);
+    x.onload = function () {
+      if (x.status >= 200 && x.status < 300) {
+        try { res(JSON.parse(x.responseText)); } catch (e) { rej(new Error("bad JSON")); }
+      } else rej(new Error("HTTP " + x.status));
+    };
+    x.onerror = function () { rej(new Error("network error (blacklodge unreachable?)")); };
+    x.ontimeout = function () { rej(new Error("timeout")); };
+    x.send();
+  });
+}
+
+/* ---------- LIST with sport tabs ---------- */
+function buildTabs() {
+  var w = {};
+  games.forEach(function (g) { w[g.sport] = (w[g.sport] || 0) + (g.live ? 3 : 1); });
+  tabs = ["live"].concat(Object.keys(w).sort(function (a, b) { return w[b] - w[a]; }));
+  tab = 0;
+}
+function curRows() {
+  if (tabs[tab] === "live") return games.filter(function (g) { return g.live; });
+  return games.filter(function (g) { return g.sport === tabs[tab]; });
+}
+function renderTabs() {
+  var t = document.getElementById("tabs");
+  t.innerHTML = "";
+  tabs.forEach(function (s, i) {
+    var d = document.createElement("div");
+    d.className = "tab" + (i === tab ? " sel" : "");
+    d.textContent = (s === "live" ? "\u25CF Live" : s);
+    t.appendChild(d);
+  });
+}
+function renderList() {
+  rows = curRows();
+  var w = document.getElementById("wrap");
+  w.innerHTML = "";
+  if (!rows.length) {
+    w.innerHTML = "<div style='padding:60px;color:#667;font-size:26px;text-align:center'>" +
+      "No games in this category right now</div>";
+  }
+  rows.forEach(function (g, i) {
+    var d = document.createElement("div");
+    d.className = "row";
+    d.innerHTML = '<div class="badge' + (g.live ? " live" : "") + '">' +
+      (g.live ? "LIVE" : g.status) + "</div>" +
+      '<div class="ti">' + g.title + "</div>" +
+      '<div class="st">' + (g.live ? g.status : "") + "</div>" +
+      '<div class="dt">' + g.detail + "</div>";
+    d.onclick = (function (gg) { return function () { openEvent(gg); }; })(g);
+    w.appendChild(d);
+  });
+  if (sel >= rows.length) sel = 0;
+  renderTabs();
+  drawList();
+}
+function drawList() {
+  var w = document.getElementById("wrap");
+  var rr = w.querySelectorAll(".row");
+  for (var i = 0; i < rr.length; i++) rr[i].classList.remove("focused");
+  if (rr[sel]) { rr[sel].classList.add("focused"); rr[sel].scrollIntoView({ block: "nearest" }); }
+}
+
+/* ---------- SOURCES (pre-resolved) ---------- */
+function openEvent(g) {
+  curEvent = g; curTitle = g.title; psrc = 0;
+  busy(true, "Finding working streams…");
+  getJSON(API + "/prepare?path=" + encodeURIComponent(g.path), 45000).then(function (d) {
+    prep = d; busy(false);
+    curTitle = d.title || g.title;
+    view = "src";
+    document.getElementById("wrap").style.display = "none";
+    document.getElementById("tabs").style.display = "none";
+    document.getElementById("sources").style.display = "block";
+    document.getElementById("title").textContent = curTitle;
+    var playable = d.sources.filter(function (s) { return s.ok; });
+    document.getElementById("shead").textContent =
+      d.ok_count + " of " + d.sources.length + " sources working — BACK returns to schedule";
+    var sl = document.getElementById("slist");
+    sl.innerHTML = "";
+    d.sources.forEach(function (s, i) {
+      var r = document.createElement("div");
+      r.className = "srow" + (s.ok ? "" : " dead");
+      var dom = s.url.replace(/^https?:\/\/([^\/]+).*/, "$1");
+      r.innerHTML = '<div class="mark">' + (s.ok ? "\u2713" : "\u2717") + "</div>" +
+        '<div class="lbl">' + s.label + "</div><div class='dom'>" + dom + "</div>";
+      r.onclick = (function (ss, ii) { return function () {
+        if (!ss.ok) { toast("This source has no direct stream"); return; }
+        psrc = ii; playSource(ss.candidates);
+      }; })(s, i);
+      sl.appendChild(r);
+    });
+    if (playable.length) playSource(playable[0].candidates);
+    else toast("No working sources found for this game", 4000);
+  }).catch(function (e) { busy(false); toast("Prepare error: " + e.message); });
+}
+function drawSrc() {
+  var rr = document.querySelectorAll("#slist .srow");
+  for (var i = 0; i < rr.length; i++) rr[i].classList.remove("focused");
+  if (rr[psrc]) { rr[psrc].classList.add("focused"); rr[psrc].scrollIntoView({ block: "nearest" }); }
+}
+function backToList() {
+  document.getElementById("sources").style.display = "none";
+  document.getElementById("wrap").style.display = "block";
+  document.getElementById("tabs").style.display = "block";
+  document.getElementById("title").textContent = "Sports";
+  view = "list"; renderList();
+}
+
+/* ---------- PLAYER ---------- */
+function playSource(candList) {
+  cands = candList || []; candIdx = 0;
+  document.getElementById("player").style.display = "block";
+  view = "play";
+  tryCand();
+}
+function tryCand() {
+  var v = document.getElementById("v");
+  if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  if (candIdx >= cands.length) {
+    closePlayer(); toast("All sources failed"); return;
+  }
+  var c = cands[candIdx];
+  pov("Source " + (candIdx + 1) + "/" + cands.length + " (" + c.type + ")");
+  v.muted = false;
+  if (c.type === "mp4") {
+    v.src = c.url;
+    startPlay();
+    return;
+  }
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({ manifestLoadingTimeOut: 20000, fragLoadingTimeOut: 30000 });
+    hls.on(Hls.Events.ERROR, function (ev, d) {
+      if (d.fatal) nextCand("stream error: " + d.details);
+    });
+    hls.loadSource(c.url);
+    hls.attachMedia(v);
+    startPlay();
+  } else {
+    v.src = c.url;
+    startPlay();
+  }
+}
+function startPlay() {
+  var v = document.getElementById("v");
+  var p = v.play();
+  if (p && p.catch) p.catch(function () {
+    v.muted = true;
+    v.play().catch(function () { nextCand("autoplay blocked"); });
+    var povEl = document.getElementById("pov");
+    povEl.textContent = "MUTED — press OK for audio";
+    povEl.style.display = "block";
+  });
+}
+function nextCand(why) {
+  toast("(" + why + ") trying next source…", 2000);
+  candIdx++;
+  tryCand();
+}
+function pov(msg) {
+  var p = document.getElementById("pov");
+  p.textContent = msg; p.style.display = "block";
+  clearTimeout(povT); povT = setTimeout(function () { p.style.display = "none"; }, 4000);
+}
+function closePlayer() {
+  var v = document.getElementById("v");
+  if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  v.pause(); v.removeAttribute("src"); v.load();
+  document.getElementById("player").style.display = "none";
+  document.getElementById("pov").style.display = "none";
+  view = "src"; drawSrc();
+}
+
+/* ---------- KEYS ---------- */
+document.addEventListener("keydown", function (e) {
+  var k = e.key;
+  if (view === "play") {
+    var vid = document.getElementById("v");
+    if (k === "GoBack" || k === "Escape" || k === "Backspace" || k === "BrowserBack") closePlayer();
+    else if (k === "Enter" || k === "MediaPlayPause") {
+      if (vid.muted) {
+        vid.muted = false;
+        document.getElementById("pov").style.display = "none";
+        toast("Audio on");
+      } else {
+        pov(candIdx < cands.length ?
+          ("source " + (candIdx + 1) + "/" + cands.length + " · " + cands[candIdx].type) : "no source");
+      }
+    }
+    e.preventDefault(); return;
+  }
+  if (view === "src") {
+    var n = prep ? prep.sources.length : 0;
+    if (k === "ArrowDown") { psrc = Math.min(psrc + 1, n - 1); drawSrc(); }
+    else if (k === "ArrowUp") { psrc = Math.max(psrc - 1, 0); drawSrc(); }
+    else if (k === "Enter" || k === "MediaPlayPause") {
+      if (prep && prep.sources[psrc]) {
+        var s = prep.sources[psrc];
+        if (!s.ok) { toast("This source has no direct stream"); }
+        else playSource(s.candidates);
+      }
+    }
+    else if (k === "GoBack" || k === "Escape" || k === "Backspace" || k === "BrowserBack") backToList();
+    e.preventDefault(); return;
+  }
+  var g = rows.length;
+  if (k === "ArrowDown") { sel = Math.min(sel + 1, g - 1); drawList(); }
+  else if (k === "ArrowUp") { sel = Math.max(sel - 1, 0); drawList(); }
+  else if (k === "ArrowRight") { tab = Math.min(tab + 1, tabs.length - 1); sel = 0; renderList(); }
+  else if (k === "ArrowLeft") { tab = Math.max(tab - 1, 0); sel = 0; renderList(); }
+  else if (k === "Enter" || k === "MediaPlayPause") { if (rows[sel]) openEvent(rows[sel]); }
+  else if (k === "GoBack" || k === "Escape" || k === "Backspace" || k === "BrowserBack") {
+    goBack();
+  }
+  e.preventDefault();
+});
+
+busy(true, "Loading schedule…");
+getJSON(API + "/schedule").then(function (d) {
+  games = d; busy(false);
+  buildTabs();
+  if (!games.filter(function (x) { return x.live; }).length && tabs.length > 1) tab = 1;
+  renderList();
+  if (!games.length) toast("No games scheduled today");
+}).catch(function (e) {
+  busy(false); toast("Schedule error: " + e.message + " — is blacklodge awake?");
+});
+</script></body></html>
