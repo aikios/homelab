@@ -554,8 +554,38 @@ def run_shell(cmd: str, why: str) -> str:
     return f"exit {p.returncode}\n--- stdout ---\n{out}" + (f"\n--- stderr ---\n{err}" if err else "")
 
 
+@beta_tool
+def empty_trash(older_than_days: int | None = None, dry_run: bool = False) -> str:
+    """Permanently purge trash. Deletes (mine or the arrs') go to trash — recoverable,
+    not erased — until this runs. It also runs automatically once a week; call this to
+    empty it right now.
+
+    Args:
+        older_than_days: only purge items trashed more than this many days ago (keeps a
+            safety window); omit to empty everything now.
+        dry_run: just list what would be purged; delete nothing.
+    """
+    cmd = ["trash-empty", "-f"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if older_than_days is not None:
+        cmd.append(str(older_than_days))
+    before = disk.free_gb()
+    try:
+        p = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return "trash-empty timed out after 600s"
+    if dry_run:
+        listing = (p.stdout or "").strip() or "(nothing to purge)"
+        return "dry run — would purge:\n" + listing[:3500]
+    _log("empty_trash", older_than_days=older_than_days)
+    freed = disk.free_gb() - before
+    scope = f" older than {older_than_days}d" if older_than_days is not None else ""
+    return f"Emptied trash{scope}. Freed ~{freed:.1f} GB · now {disk.free_gb():.1f} GB free."
+
+
 ALL_TOOLS = [
     library_report, queue_status, disk_report, find, search_releases, get,
     grab, add_magnet, import_file, attach_subs, reclaim_space, jellyfin_scan, remove,
-    job_status, cost_status, set_credit, run_shell,
+    empty_trash, job_status, cost_status, set_credit, run_shell,
 ]

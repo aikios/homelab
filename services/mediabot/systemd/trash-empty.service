@@ -1,0 +1,9 @@
+[Unit]
+Description=Empty the media trash (bot/arr deletes go to trash, not erased)
+
+[Service]
+Type=oneshot
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%
+# Full empty. For a safety window instead, append a day count: "... trash-empty -f 7".
+ExecStart=%%REPO%%/.venv/bin/trash-empty -f
