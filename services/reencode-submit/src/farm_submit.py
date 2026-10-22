@@ -40,6 +40,11 @@ JF = os.environ.get("JELLYFIN_URL", "http://localhost:8096")
 API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 BASE = os.path.expanduser(os.environ.get("FARM_QUEUE_DIR", "~/reencode_farm"))
 STATES = ("queue", "claimed", "done")
+# A blind scan can catch a file mid-import/remux (Jellyfin may even report a
+# transient path that then vanishes). Don't queue anything that isn't settled:
+# missing, zero-size, or modified within this window. It gets picked up on a
+# later scan once stable.
+STABLE_SECS = int(os.environ.get("FARM_STABLE_SECS", "120"))
 
 
 def log(msg):
@@ -71,8 +76,17 @@ def known_sources():
 
 def submit(path, **extra):
     path = os.path.abspath(path)
-    if not os.path.exists(path):
+    try:
+        st = os.stat(path)
+    except OSError:
         log("SKIP (missing): " + path)
+        return None
+    if st.st_size == 0:
+        log("SKIP (zero-size): " + path)
+        return None
+    age = time.time() - st.st_mtime
+    if age < STABLE_SECS:
+        log(f"SKIP (still settling, {age:.0f}s < {STABLE_SECS}s): " + path)
         return None
     job = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + hex(abs(hash(path)))[2:8],
            "source": path,
