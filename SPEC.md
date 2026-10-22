@@ -31,10 +31,14 @@ homelab/
 ├── pyproject.toml          # uv workspace root (one lockfile for all services)
 ├── libs/core/              # homelab-core: shared code
 │   └── src/homelab_core/   #   config (env/secrets), notify (Discord), ha (location)
-├── services/               # owner-built Python daemons (workspace members)
-│   ├── rain-alert/         #   each: src/, systemd/*.service|*.timer, SPEC.md
+├── services/               # owner-built Python daemons
+│   ├── rain-alert/         #   workspace members: src/, systemd/*, SPEC.md
 │   ├── topic-watcher/
-│   └── mediabot/
+│   ├── mediabot/
+│   ├── sports-api/         #   TV stack (NOT workspace members — own venv /
+│   ├── tv-watch/           #   system python3; excluded in pyproject.toml):
+│   ├── reencode-worker/    #   see "TV stack" below
+│   └── reencode-submit/
 ├── stacks/                 # third-party apps as config-as-code
 │   └── <app>/docker-compose.yml + .env.example
 ├── deploy/
@@ -105,7 +109,50 @@ Passwordless `sudo -n`.
   (its event loop isn't expressible as `Messenger`); it can present `Messenger` via
   a small adapter in its own package if ever wanted.
 
+## TV stack (imported 2026-10-22, with the user)
+
+A self-hosted streaming stack for a Vizio M55-D0 (Conjure webview / Chromium 72).
+Everything the TV needs at runtime runs on **blacklodge**; **vega** is the GPU
+re-encode worker + a sports-api fallback, and the TV keeps working with vega off.
+This was the first **multi-host** import and the repo is now the single source of
+truth for both hosts (each has its own `git` checkout; services run from it).
+
+Flow: the TV loads `tv-watch`'s client (`jellyfin.html`) from `:8099`; the Sports
+tile calls `sports-api`, which drives headless Chromium to extract clean `.m3u8`
+streams and proxies them with referer-spoofing; media the TV can't direct-play is
+queued by `reencode-submit` and re-encoded to h264 on vega by `reencode-worker`.
+
+| Service | Host(s) | Unit | Runtime |
+|---|---|---|---|
+| sports-api | blacklodge :8100, vega :8098 | `sports-api.service` | dedicated `~/.venvs/sports` (playwright + chromium) |
+| tv-watch | blacklodge | `tv-watch.service` (was an `@reboot` cron) | system python3; serves payloads + watches the TV |
+| reencode-worker | vega | `reencode-worker.service` | system python3 + ffmpeg (NVENC/VAAPI) |
+| reencode-submit | blacklodge | — (CLI) | system python3 |
+
+Conventions these four break from the rest (on purpose):
+- **Not uv workspace members** — they use their own interpreter, so they are in
+  `[tool.uv.workspace] exclude`. `install.sh` still installs their units; `uv sync`
+  skips them. sports-api's venv is built once per host by its `bootstrap.sh`.
+- **No server address in the tree** — the payloads derive their API base from
+  `location.hostname`; hosts/ports/keys come from each service's gitignored `.env`.
+- **Extra gitignored secrets:** `tv-watch/jf_url.txt` (Jellyfin auth params) and
+  `tv-watch/tv_token.json` (TV pairing token); `*.example` templates are committed.
+
+Per-service SPEC.md has the details; `tv-watch/SPEC.md` carries the client-deploy
+runbook (edit payload → push → pull → cache-bust → `tv_pwn.js launch`).
+
 ## Open / to decide later
+- **Rotate the Jellyfin API key** — it sat hardcoded in the pre-import reencode
+  scripts (plaintext on two hosts); treat as exposed now that history is clean.
+- **sports-api** carries pre-existing ruff/ty debt (defensive-scraper blind
+  excepts, %-format, a stdlib handler override) — left as-is like mediabot; its
+  own cleanup pass.
+- **Retire the pre-import runtime dirs** (`~/vizio_watch` on blacklodge, vega's
+  `~/vizio_recon/scratchpad`) once fully confident — kept as fallbacks for now.
+- **On-TV re-test** of the `sports.html` `location.hostname` change when the TV is
+  next on (verified server-side; it auto-refreshes via its cache-buster).
+- vega now has a full workspace venv from `install.sh`'s `uv sync --all-packages`
+  even though it only runs stdlib services — harmless, revisit if it bloats.
 - Clean up mediabot's pre-existing ruff (66) / ty (16) findings — noqa-code drift
   vs current ruff + intentional patterns (SLF001, defensive BLE001/S110). Separate
   from the migration; touches live code.
