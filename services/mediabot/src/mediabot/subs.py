@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -181,8 +183,49 @@ def _fetch_online(video: str, lang: str = "en") -> str | None:
     for pat in (f"*{_alpha3(lang)}*", f"*{lang}*", "*"):
         hits = [f for f in p.parent.glob(p.stem + pat) if f.suffix.lower() == ".srt"]
         if hits:
-            return str(max(hits, key=lambda f: f.stat().st_mtime))
+            got = str(max(hits, key=lambda f: f.stat().st_mtime))
+            return sync_timing(video, got)
     return None
+
+
+def sync_timing(video: str, srt_path: str, max_offset: int = 120) -> str:
+    """Re-time an out-of-sync subtitle against the video's own audio.
+
+    Uses ffsubsync (voice-activity detection — language-agnostic, so a Chinese
+    soundtrack syncs an English sub fine), with alass as a fallback when its binary is
+    present (alass handles non-linear drift: different cuts, ad breaks). Only meant for
+    subs that did NOT ship with the release — release embedded/sidecar tracks are already
+    synced, so callers skip this for them. Fail-safe: returns the ORIGINAL path on any
+    error or if auto-sync is disabled, so the pipeline never breaks on a sync hiccup.
+    """
+    if not CFG.subs_autosync:
+        return srt_path
+    src = Path(srt_path)
+    out = src.with_name(src.stem + ".synced" + src.suffix)
+    # ffsubsync shells out to a bare `ffmpeg`; our ffmpeg is jellyfin's at a custom
+    # path, so put its directory on PATH (FFMPEG_PATH alone isn't honored here).
+    ffdir = str(Path(CFG.ffmpeg).parent)
+    env = dict(os.environ, FFMPEG_PATH=ffdir,
+               PATH=ffdir + os.pathsep + os.environ.get("PATH", ""))
+    ffs = Path(sys.executable).with_name("ffsubsync")
+    try:
+        r = subprocess.run([str(ffs), video, "-i", str(src), "-o", str(out),
+                            "--max-offset-seconds", str(max_offset)],
+                           capture_output=True, text=True, env=env, timeout=900, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return srt_path
+    if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
+        return str(out)
+    alass = shutil.which("alass") or shutil.which("alass-cli")
+    if alass:
+        try:
+            r2 = subprocess.run([alass, video, str(src), str(out)],
+                                capture_output=True, text=True, timeout=900, check=False)
+            if r2.returncode == 0 and out.exists() and out.stat().st_size > 0:
+                return str(out)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return srt_path  # fail-safe: keep original timing
 
 
 # ───────────────────────────  styling  ───────────────────────────

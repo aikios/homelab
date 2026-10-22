@@ -12,6 +12,7 @@ dependencies = [
     "babelfish>=0.6",
     "python-dotenv>=1.0",
     "trash-cli>=0.24",
+    "ffsubsync>=0.4.20",
 ]
 
 [project.scripts]
