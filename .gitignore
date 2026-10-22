@@ -25,3 +25,10 @@ stacks/**/config/
 stacks/**/data/
 
 .DS_Store
+
+# macOS resource-fork cruft
+._*
+
+# TV-stack per-host secrets (only the *.example files are tracked)
+services/tv-watch/jf_url.txt
+services/tv-watch/tv_token.json

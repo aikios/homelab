@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<!-- Jellyfin client v3 for Vizio M55-D0 (Chromium 72-safe): Series->Seasons->Episodes nav,
+     custom remote-driven player overlay, 20Mbps transcode, seek with startTimeTicks fallback -->
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=1280">
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background-color:#dfe3ec;
+  background-image:repeating-linear-gradient(180deg, rgba(255,255,255,.34) 0 3px, rgba(255,255,255,0) 3px 6px);
+  color:#1d2740; overflow:hidden; -webkit-font-smoothing:antialiased;
+  font-family:"Lucida Grande","Lucida Sans","Helvetica Neue",Helvetica,Arial,sans-serif; }
+#topbar { position:fixed; top:0; left:0; right:0; height:64px; padding:14px 28px; z-index:5;
+  background:linear-gradient(#d6dae4,#b8becb 55%,#a4abba); border-bottom:1px solid #8891a3;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 2px 8px rgba(20,30,60,.35);
+  font-size:28px; font-weight:bold; color:#1f2740; text-shadow:0 1px 0 rgba(255,255,255,.65);
+  white-space:nowrap; overflow:hidden; }
+#grid { position:absolute; top:64px; bottom:0; left:0; right:0; overflow-y:auto;
+  display:flex; flex-wrap:wrap; align-content:flex-start; padding:20px;
+  scroll-snap-type:y mandatory; scroll-padding:20px 0; }
+.card { width:15%; margin:0.8%; position:relative; outline:none; border-radius:12px; overflow:hidden;
+  box-shadow:0 3px 10px rgba(20,30,60,.28); scroll-snap-align:start; }
+.card .face { position:absolute; top:0; left:0; right:0; bottom:0; border-radius:12px;
+  display:flex; align-items:center; justify-content:center; padding:14px 12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), inset 0 -14px 22px rgba(255,255,255,.22); }
+.card .lbl { font-size:30px; line-height:1.25; text-align:center; color:#1d2740;
+  word-wrap:break-word; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.card img { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; background:#b9c2d4; }
+.card .nm { position:absolute; left:0; right:0; bottom:0; padding:10px 12px 8px; font-size:20px; color:#fff;
+  background:linear-gradient(#000000e0,#00000000 130%); display:-webkit-box; -webkit-line-clamp:2;
+  -webkit-box-orient:vertical; overflow:hidden; opacity:0; transition:opacity .15s; }
+.card.sel .nm { opacity:1; }
+.card.sel { box-shadow:0 0 0 4px rgba(63,131,228,.85), 0 0 18px rgba(63,131,228,.55), 0 3px 10px rgba(20,30,60,.28); }
+#spin { position:fixed; top:70px; right:26px; font-size:20px; font-weight:bold; color:#2f6fd0; z-index:6; display:none; }
+/* player */
+#player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
+#player .ptitle { position:absolute; top:18px; left:26px; right:26px; font-size:28px; z-index:12;
+  text-shadow:0 2px 6px #000; font-weight:bold; }
+#player .pctrl { position:absolute; left:0; right:0; bottom:0; padding:20px 30px 26px; z-index:12;
+  background:linear-gradient(#00000000,#000000e8 70%); transition:opacity .3s; }
+#player .prow { display:flex; align-items:center; font-size:22px; color:#cde; gap:14px; }
+#ppp { min-width:56px; text-align:center; font-weight:bold; color:#fff; padding:6px 20px; border-radius:999px;
+  background:linear-gradient(#8fc0ff,#3f83e4); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 2px 6px rgba(0,20,60,.45); }
+#pbar { position:relative; flex:1; height:14px; background:#b9c2d4; border-radius:7px; margin:14px 0;
+  box-shadow:inset 0 1px 3px rgba(20,30,60,.45); }
+#pfill { position:absolute; left:0; top:0; bottom:0; width:0; border-radius:7px;
+  background:linear-gradient(#8fc0ff,#3f83e4); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 2px rgba(0,30,90,.35); }
+#pbuf { position:absolute; left:0; top:0; bottom:0; width:0; background:#8d97ad; border-radius:7px; }
+#pstate { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); font-size:30px; font-weight:bold;
+  color:#1d2740; background:linear-gradient(#eef1f8,#c9d0e0); padding:18px 34px; border-radius:12px;
+  box-shadow:0 8px 30px rgba(0,10,40,.5), inset 0 1px 0 #fff; z-index:13; display:none; }
+#video { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; }
+</style></head><body>
+<script>
+// adaptive scale: Conjure webview renders at device resolution (3840px CSS).
+// zoom BODY (not html: fixed-position elements ignore root zoom in Chromium 72)
+(function () { var w = window.innerWidth || screen.width || 1280;
+  if (w > 1600) document.body.style.zoom = String(w / 1280); })();
+</script>
+<div id="topbar">Jellyfin</div><div id="spin">loading…</div><div id="grid"></div>
+<div id="player">
+  <video id="video" autoplay></video>
+  <div class="ptitle" id="ptitle"></div>
+  <div class="pctrl" id="pctrl"><div class="prow">
+    <span id="ppp">II</span><div id="pbar"><div id="pbuf"></div><div id="pfill"></div></div>
+    <span id="ptime">0:00</span></div>
+  <div class="prow" style="font-size:18px;color:#89a">OK = pause/play &nbsp; &#8592; &#8594; = ±10s &nbsp; &#8593; &#8595; = ±60s &nbsp; UP while paused = CC &nbsp; BACK = exit</div></div>
+  <div id="pstate">…</div>
+</div>
+<script>
+var m = location.search.match(/srv=([^&]+)/);
+var API = m ? decodeURIComponent(m[1]) : "http://" + location.hostname + ":8096";
+m = location.search.match(/u=([A-Za-z0-9]+)/); var UID = m ? m[1] : "";
+m = location.search.match(/k=([A-Za-z0-9]+)/); var KEY = m ? m[1] : "";
+if (!UID || !KEY) { document.getElementById("topbar").textContent = "Jellyfin: missing token params"; throw new Error("noauth"); }
+var grid = document.getElementById("grid"), topbar = document.getElementById("topbar"),
+    spin = document.getElementById("spin"), player = document.getElementById("player"),
+    video = document.getElementById("video"), pctrl = document.getElementById("pctrl"),
+    ptitle = document.getElementById("ptitle"), pfill = document.getElementById("pfill"),
+    pbuf = document.getElementById("pbuf"), ptime = document.getElementById("ptime"),
+    ppp = document.getElementById("ppp"), pstate = document.getElementById("pstate");
+var items = [], sel = 0, stack = [], inPlayer = false, ptitle_txt = "", ctrlTimer = null;
+
+function api(path) {
+  spin.style.display = "block";
+  return fetch(API + path, { headers: { "X-Emby-Token": KEY } }).then(function (r) {
+    spin.style.display = "none";
+    if (!r.ok) throw new Error("HTTP " + r.status + " " + path);
+    return r.json();
+  }).catch(function (e) { spin.style.display = "none"; throw e; });
+}
+function img(id, kind) { return API + "/Items/" + id + "/Images/" + (kind || "Primary") + "?fillHeight=720&fillWidth=480&quality=90&api_key=" + KEY; }
+function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function fmt(s) { s = Math.max(0, Math.floor(s || 0)); var h = Math.floor(s / 3600), mn = Math.floor(s % 3600 / 60), sec = s % 60;
+  return (h ? h + ":" : "") + (h && mn < 10 ? "0" : "") + mn + ":" + (sec < 10 ? "0" : "") + sec; }
+
+function draw() {
+  var home = !stack.length;
+  topbar.style.display = home ? "none" : "block";
+  grid.style.top = home ? "0" : "64px";
+  grid.style.justifyContent = home ? "center" : "flex-start";
+  grid.style.alignContent = home ? "center" : "flex-start";
+  grid.innerHTML = items.map(function (it, i) {
+    var c = "card " + (i === sel ? "sel" : "");
+    if (home) {
+      return "<div class='" + c + "' i='" + i + "' style='width:24%;margin:1%'>" +
+        "<div style='padding-top:150%'></div>" +
+        "<div class='face' style='background:linear-gradient(160deg,#f2f5fa,#c4cdde)'>" +
+        "<div class='lbl'>" + esc(it.Id === "sports-tile" ? "Sports" : (it.Name || "")) + "</div></div></div>";
+    }
+    return "<div class='" + c + "' i='" + i + "'>" +
+      "<div style='padding-top:150%'></div>" +
+      "<img src='" + img(it.Id) + "' onerror=\"this.src='';this.style.background='#b9c2d4'\">" +
+      "<div class='nm'>" + esc(it.Name || it.SeriesName || "") + "</div></div>";
+  }).join("");
+  var cur = grid.children[sel];
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
+}
+function render(list, title) { items = list; sel = 0; grid.scrollTop = 0; topbar.textContent = "Jellyfin" + (title ? " — " + title : ""); draw(); }
+
+/* ---------------- player ---------------- */
+function showCtrl(autohide) {
+  pctrl.style.opacity = 1; ptitle.style.opacity = 1;
+  if (ctrlTimer) clearTimeout(ctrlTimer);
+  if (autohide) ctrlTimer = setTimeout(function () { pctrl.style.opacity = 0; ptitle.style.opacity = 0; }, 4000);
+}
+function pMsg(t, ms) { pstate.style.display = "block"; pstate.textContent = t;
+  if (ms) setTimeout(function () { pstate.style.display = "none"; }, ms); }
+var posBase = 0, logicalDur = 0, dp = false; // ms; stream offset + duration; dp = direct-playable
+var psid = "web" + Date.now(); // Jellyfin job key: rotate per seek -> fresh ffmpeg at the right -ss
+function logicalPos() {
+  var cur = (video.currentTime || 0) * 1000;
+  // some remuxes keep absolute timestamps: detect and treat currentTime as absolute
+  if (cur > posBase + 15000 && cur <= logicalDur + 2000) return cur;
+  return posBase + cur;
+}
+function streamUrl(startMs) {
+  var u = API + "/Videos/" + curItemId + "/stream.mp4?VideoCodec=h264&AudioCodec=aac&VideoBitRate=20000000&api_key=" + KEY +
+    "&PlaySessionId=" + psid;
+  if (startMs > 0) u += "&startTimeTicks=" + (startMs * 10000);
+  return u;
+}
+function staticUrl() { return API + "/Videos/" + curItemId + "/stream.mp4?static=true&api_key=" + KEY; }
+function openPlayer(id, name, rtTicks) {
+  inPlayer = true; ptitle_txt = name || "";
+  curItemId = id; ccCues = null; ccOn = false; subEl.style.display = "none";
+  posBase = 0; logicalDur = rtTicks ? Math.floor(rtTicks / 10000) : 0; psid = "web" + Date.now();
+  player.style.display = "block"; ptitle.textContent = ptitle_txt;
+  pfill.style.width = "0%"; ptime.textContent = "0:00";
+  showCtrl(false); pMsg("loading…", 0);
+  api("/Users/" + UID + "/Items/" + id + "?Fields=MediaSources").then(function (it) {
+    var ms = (it.MediaSources || [])[0] || {};
+    ccMsId = ms.Id;
+    subStreams = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Subtitle"; });
+    var def = null;
+    subStreams.forEach(function (s) { if (s.IsDefault && !def) def = s; });
+    subStreams.forEach(function (s) { if (!def && (s.Language || "").indexOf("eng") === 0) def = s; });
+    ccIdx = def ? subStreams.indexOf(def) : (subStreams.length ? 0 : -1);
+    if (!subStreams.length) pMsg("no subtitle tracks", 2500);
+    // direct-playable? (mp4 + h264 + aac): serve original file, native seeking works
+    dp = false;
+    var v = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Video"; })[0];
+    var a = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Audio"; })[0];
+    if (v && a && /mp4/i.test(ms.Container || "") && /h264/i.test(v.Codec || "") && /aac/i.test(a.Codec || "")) dp = true;
+    video.src = dp ? staticUrl() : streamUrl(0);
+    video.play().then(function () { pstate.style.display = "none"; showCtrl(true); })
+      .catch(function (e) { pMsg("play error: " + e.message, 6000); });
+  }).catch(function (e) { pMsg("load error: " + e.message, 6000); });
+}
+function closePlayer() { inPlayer = false; player.style.display = "none"; video.pause();
+  video.removeAttribute("src"); try { video.load(); } catch (e) { } showCtrl(false); }
+function togglePause() { if (video.paused) { video.play(); ppp.textContent = "II"; } else { video.pause(); ppp.textContent = "\u25B6"; } showCtrl(true); }
+function seek(delta) {
+  var target = Math.max(0, logicalPos() + delta * 1000);
+  if (logicalDur) target = Math.min(target, logicalDur - 3000);
+  if (dp) { // native seek on range-served original file
+    try { video.currentTime = target / 1000; } catch (e) { }
+    showCtrl(true);
+    return;
+  }
+  posBase = target; psid = "web" + Date.now();
+  video.src = streamUrl(target);
+  pfill.style.width = (logicalDur ? target / logicalDur * 100 : 0) + "%";
+  ptime.textContent = fmt(target / 1000) + (logicalDur ? " / " + fmt(logicalDur / 1000) : "");
+  pMsg("\u2192 " + fmt(target / 1000), 0);
+  video.play().then(function () { pstate.style.display = "none"; showCtrl(true); })
+    .catch(function (e) { pMsg("seek failed: " + e.message, 2500); });
+}
+video.addEventListener("timeupdate", function () {
+  var p = logicalPos();
+  pfill.style.width = (logicalDur ? p / logicalDur * 100 : 0) + "%";
+  ptime.textContent = fmt(p / 1000) + (logicalDur ? " / " + fmt(logicalDur / 1000) : "");
+});
+video.addEventListener("progress", function () {
+  try { if (video.buffered.length && video.duration) pbuf.style.width = (video.buffered.end(video.buffered.length - 1) / video.duration * 100) + "%"; } catch (e) { }
+});
+video.addEventListener("waiting", function () { pMsg("buffering…", 0); });
+video.addEventListener("playing", function () { pstate.style.display = "none"; });
+video.addEventListener("ended", function () { closePlayer(); });
+
+/* ---------------- subtitles (JS-rendered sidecar SRT/VTT) ---------------- */
+var ccCues = null, ccOn = false, subStreams = [], ccIdx = -1, ccMsId = null, curItemId = null;
+var subEl = document.createElement("div");
+subEl.style.cssText = "position:fixed;left:10%;right:10%;bottom:110px;text-align:center;font-size:26px;" +
+  "color:#fff;text-shadow:0 2px 4px #000,0 0 8px #000;z-index:14;display:none;pointer-events:none;";
+document.body.appendChild(subEl);
+function tcMs(h, m, s, f) { return ((+h * 60 + +m) * 60 + +s) * 1000 + +f; }
+function subTags(t) {
+  // preserve what the server serves: font colors -> spans; keep i/b/u; strip other tags
+  t = t.replace(/<font\s+color\s*=\s*"?([#0-9A-Za-z]+)"?[^>]*>/gi, function (_, c) { return '<span style="color:' + c + '">'; });
+  t = t.replace(/<\/font>/gi, "</span>");
+  t = t.replace(/<\/?[^ibu][^>]*>/gi, "");
+  return t;
+}
+function parseSubs(txt) {
+  var cues = [];
+  txt.replace(/\r/g, "").split(/\n\s*\n/).forEach(function (block) {
+    var mm = block.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+    if (!mm) return;
+    var lines = block.split("\n").filter(function (l) { return !/^\d+$/.test(l.trim()) && l.indexOf("-->") < 0; });
+    cues.push({ a: tcMs(mm[1], mm[2], mm[3], mm[4]), b: tcMs(mm[5], mm[6], mm[7], mm[8]),
+      t: subTags(lines.join("<br>")) });
+  });
+  return cues;
+}
+/* ---- ASS parser: preserves the styling the server serves (colors, italic/bold,
+        outline, alignment, margins, font size, \pos/\an overrides) ---- */
+function assColor(v) { // &HAABBGGRR -> #RRGGBB
+  var h = String(v).replace(/[&Hh]/g, "");
+  h = (h + "000000").slice(0, 8);
+  return "#" + h.substr(6, 2) + h.substr(4, 2) + h.substr(2, 2);
+}
+function assTime(s) { var m = (s || "").match(/(\d+):(\d+):(\d+)[.](\d+)/);
+  return m ? ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * 1000 + (+m[4]) * 10 : 0; }
+function assInline(t, st, sc) { // inline override tags -> html runs
+  var cur = { b: !!st.b, i: !!st.i, u: !!st.u, c: null, fs: 0 };
+  var html = "", seg = "", k = 0;
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function emit() {
+    if (!seg) return;
+    var css = "";
+    if (cur.i) css += "font-style:italic;";
+    if (cur.b) css += "font-weight:bold;";
+    if (cur.u) css += "text-decoration:underline;";
+    if (cur.c) css += "color:" + cur.c + ";";
+    if (cur.fs) css += "font-size:" + Math.max(12, Math.round(cur.fs * sc)) + "px;";
+    html += css ? '<span style="' + css + '">' + esc(seg) + "</span>" : esc(seg);
+    seg = "";
+  }
+  while (k < t.length) {
+    var ch = t.charAt(k);
+    if (ch === "{") {
+      var e = t.indexOf("}", k);
+      if (e > k) {
+        var body = t.slice(k + 1, e).split("\\"), q, m2;
+        for (q = 0; q < body.length; q++) {
+          var tg = body[q];
+          if ((m2 = tg.match(/^i(\d)/i)) && (m2[1] !== "0") !== cur.i) { emit(); cur.i = m2[1] !== "0"; }
+          else if ((m2 = tg.match(/^b(\d+)/i)) && (m2[1] !== "0") !== cur.b) { emit(); cur.b = m2[1] !== "0"; }
+          else if ((m2 = tg.match(/^u(\d)/i)) && (m2[1] !== "0") !== cur.u) { emit(); cur.u = m2[1] !== "0"; }
+          else if (m2 = tg.match(/^(?:1c|c)&H([0-9A-Fa-f]+)/i)) { emit(); cur.c = assColor("&H" + m2[1]); }
+          else if ((m2 = tg.match(/^fs(\d+)/i)) && +m2[1] !== cur.fs) { emit(); cur.fs = +m2[1]; }
+          // everything else (k, fad, fn, fscx, blur...) ignored
+        }
+        k = e + 1; continue;
+      }
+    }
+    if (ch === "\\" && /[Nn]/.test(t.charAt(k + 1))) { emit(); html += "<br>"; k += 2; continue; }
+    if (ch === "\\" && t.charAt(k + 1) === "h") { seg += " "; k += 2; continue; }
+    seg += ch; k++;
+  }
+  emit();
+  return html;
+}
+function parseAss(txt) {
+  var lines = txt.split(/\r?\n/), sec = "", fmt = null, resX = 0, styles = {}, order = [], cues = [];
+  lines.forEach(function (raw) {
+    var t = raw.replace(/^\uFEFF/, "").trim();
+    if (!t) return;
+    if (t.charAt(0) === "[") { sec = t.toLowerCase(); fmt = null; return; }
+    if (sec.indexOf("script info") >= 0) {
+      var m1 = t.match(/^PlayResX:\s*(\d+)/i); if (m1) resX = +m1[1];
+      return;
+    }
+    if (sec.indexOf("styles") >= 0) {
+      if (/^Format:/i.test(t)) { fmt = t.replace(/^Format:\s*/i, "").split(",").map(function (s) { return s.trim().toLowerCase(); }); return; }
+      if (/^Style:/i.test(t) && fmt) {
+        var v = t.replace(/^Style:\s*/i, "").split(","), st = {};
+        fmt.forEach(function (n, k) {
+          if (n === "name") st.name = (v[k] || "").trim().toLowerCase();
+          else if (n === "fontsize") st.size = parseFloat(v[k]) || 26;
+          else if (n === "primarycolour") st.color = assColor(v[k]);
+          else if (n === "outlinecolour") st.oc = assColor(v[k]);
+          else if (n === "backcolour") st.bc = assColor(v[k]);
+          else if (n === "bold") st.b = +v[k] !== 0;
+          else if (n === "italic") st.i = +v[k] !== 0;
+          else if (n === "underline") st.u = +v[k] !== 0;
+          else if (n === "outline") st.out = parseFloat(v[k]) || 0;
+          else if (n === "shadow") st.sh = parseFloat(v[k]) || 0;
+          else if (n === "alignment") st.an = +v[k] || 2;
+          else if (n === "marginl") st.ml = +v[k] || 0;
+          else if (n === "marginr") st.mr = +v[k] || 0;
+          else if (n === "marginv") st.mv = +v[k] || 0;
+        });
+        styles[st.name] = st; order.push(st);
+      }
+      return;
+    }
+    if (sec.indexOf("events") >= 0) {
+      if (/^Format:/i.test(t)) { fmt = t.replace(/^Format:\s*/i, "").split(",").map(function (s) { return s.trim().toLowerCase(); }); return; }
+      if (!/^Dialogue:/i.test(t) || !fmt) return;
+      var d = t.replace(/^Dialogue:\s*/i, "").split(","), ti = fmt.indexOf("text");
+      if (ti < 0 || d.length < fmt.length) return;
+      var o = {}, k;
+      for (k = 0; k < ti; k++) o[fmt[k]] = d[k];
+      o.text = d.slice(ti).join(",");
+      var base = styles[(o.style || "").trim().toLowerCase()] || styles["default"] || order[0] || null;
+      if (!base) return;
+      var sty = { size: base.size, color: base.color, oc: base.oc, bc: base.bc, b: base.b, i: base.i, u: base.u,
+        out: base.out, sh: base.sh, an: base.an || 2, ml: base.ml, mr: base.mr, mv: base.mv, resX: resX || 384 };
+      var tx = o.text || "", m2;
+      if (m2 = tx.match(/\{\\an(\d)\}/i)) { sty.an = +m2[1]; tx = tx.replace(/\{\\an\d\}/gi, ""); }
+      if (m2 = tx.match(/\{\\pos\((\d+),(\d+)\)\}/i)) { sty.px = +m2[1]; sty.py = +m2[2]; tx = tx.replace(/\{\\pos\(\d+,\d+\)\}/gi, ""); }
+      var mL = +o.marginl || 0, mR = +o.marginr || 0, mV = +o.marginv || 0;
+      if (mL) sty.ml = mL; if (mR) sty.mr = mR; if (mV) sty.mv = mV;
+      cues.push({ a: assTime(o.start), b: assTime(o.end), t: assInline(tx, base, 1280 / sty.resX), sty: sty });
+    }
+  });
+  return cues;
+}
+function toggleCC() {
+  if (ccOn) { ccOn = false; subEl.style.display = "none"; pMsg("CC off", 1500); showCtrl(true); return; }
+  if (!subStreams.length || ccIdx < 0 || !ccMsId) { pMsg("no subtitle tracks", 2500); return; }
+  var st = subStreams[ccIdx];
+  if (ccCues) { ccOn = true; renderCc(); pMsg("CC: " + (st.DisplayTitle || st.Language || "on"), 1500); showCtrl(true); return; }
+  pMsg("loading subs…", 0);
+  var ext = /ass|ssa/i.test(st.Codec || "") ? "ass" : "srt";
+  fetch(API + "/Videos/" + curItemId + "/" + ccMsId + "/Subtitles/" + st.Index + "/Stream." + ext + "?api_key=" + KEY)
+    .then(function (r) { if (!r.ok) throw new Error("sub HTTP " + r.status); return r.text(); })
+    .then(function (t) {
+      ccCues = ext === "ass" ? parseAss(t) : parseSubs(t);
+      ccOn = true; renderCc(); pMsg("CC: " + (st.DisplayTitle || st.Language || "on") + " (" + ccCues.length + " cues)", 2000);
+      showCtrl(true);
+    })
+    .catch(function (e) { pMsg("sub load failed: " + e.message, 2500); });
+}
+function renderCc() {
+  if (!ccOn || !ccCues) return;
+  var ms = logicalPos(), c = null, i;
+  for (i = 0; i < ccCues.length; i++) if (ms >= ccCues[i].a && ms <= ccCues[i].b) { c = ccCues[i]; break; }
+  if (!c) { subEl.style.display = "none"; return; }
+  if (!c.sty) { // plain SRT: fixed bottom styling
+    subEl.style.cssText = "position:fixed;left:10%;right:10%;bottom:110px;text-align:center;font-size:26px;" +
+      "color:#fff;text-shadow:0 2px 4px #000,0 0 8px #000;z-index:14;display:block;pointer-events:none;";
+    subEl.innerHTML = c.t; return;
+  }
+  // styled ASS cue: map to the video frame in design-space CSS px
+  var z = document.body.style.zoom ? parseFloat(document.body.style.zoom) : 1;
+  var DW = Math.round((window.innerWidth || 1280) / z), DH = Math.round((window.innerHeight || 720) / z);
+  var vw = video.videoWidth || 16, vh = video.videoHeight || 9, ar = vw / vh;
+  var w = Math.min(DW, DH * ar), h = w / ar;
+  if (h > DH) { h = DH; w = h * ar; }
+  var rx = (DW - w) / 2, ry = (DH - h) / 2;
+  var sc = w / (c.sty.resX || w);
+  var fs = Math.max(14, Math.round((c.sty.size || 26) * sc));
+  var an = c.sty.an || 2, col = (an - 1) % 3 + 1;
+  var mV = (c.sty.mv || 0) * sc, mL = (c.sty.ml || 0) * sc, mR = (c.sty.mr || 0) * sc;
+  var css = "position:fixed;z-index:14;pointer-events:none;display:block;white-space:normal;line-height:1.25;" +
+    "font-size:" + fs + "px;color:" + (c.sty.color || "#fff") + ";";
+  var O = Math.max(1, (c.sty.out || 0) * sc), S = (c.sty.sh || 0) * sc, oc = c.sty.oc || "#000", bc = c.sty.bc || "#000";
+  var sh = [];
+  if (c.sty.out) sh.push("0 0 " + O + "px " + oc, O + "px 0 1px " + oc, "-" + O + "px 0 1px " + oc, "0 " + O + "px 1px " + oc, "0 -" + O + "px 1px " + oc);
+  if (S > 0) sh.push(S + "px " + S + "px 2px " + bc);
+  sh.push("0 2px 4px #000");
+  css += "text-shadow:" + sh.join(",") + ";";
+  if (c.sty.px) { // \pos override: center a box at that point of the frame
+    css += "left:" + Math.round(rx + c.sty.px * sc) + "px;top:" + Math.round(ry + c.sty.py * sc) + "px;" +
+      "transform:translate(-50%,-50%);text-align:center;max-width:" + Math.round(w * 0.9) + "px;";
+  } else {
+    css += "left:" + Math.round(rx + mL) + "px;right:" + Math.round((DW - (rx + w)) + mR) + "px;" +
+      "text-align:" + (col === 1 ? "left" : col === 3 ? "right" : "center") + ";";
+    if (an <= 3) css += "bottom:" + Math.round((DH - (ry + h)) + mV) + "px;";
+    else if (an >= 7) css += "top:" + Math.round(ry + mV) + "px;";
+    else css += "top:" + Math.round(ry + h / 2) + "px;transform:translateY(-50%);";
+  }
+  subEl.style.cssText = css;
+  subEl.innerHTML = c.t;
+}
+video.addEventListener("timeupdate", renderCc);
+
+/* ---------------- navigation ---------------- */
+function openItem(it) {
+  stack.push({ items: items, sel: sel, title: topbar.textContent });
+  spin.style.display = "block";
+  if (it.Id === "sports-tile") { spin.style.display = "none"; stack.pop();
+    location.href = "sports.html?cb=" + Date.now() + "&back=" + encodeURIComponent(location.href); return; }
+  var req;
+  if (it.Type === "Movie" || it.Type === "Episode" || it.Type === "Video") {
+    spin.style.display = "none"; stack.pop();
+    openPlayer(it.Id, it.SeriesName ? it.SeriesName + " — " + it.Name : it.Name, it.RunTimeTicks); return;
+  }
+  if (it.Type === "Series") req = api("/Shows/" + it.Id + "/Seasons?userId=" + UID + "&Fields=PrimaryImageAspectRatio").then(function (r) {
+    r.Items.forEach(function (s) { if (!s.SeriesId) s.SeriesId = it.Id; }); render(r.Items, it.Name); });
+  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID).then(function (r) { render(r.Items, it.Name); });
+  else req = api("/Users/" + UID + "/Items?ParentId=" + it.Id + "&SortBy=SortName&Recursive=" +
+    (it.CollectionType === "movies" ? "true" : "false")).then(function (r) {
+      r.Items = r.Items.filter(function (x) { return x.Type !== "Folder" && x.Type !== "CollectionFolder"; });
+      render(r.Items, it.Name); });
+  req.catch(function (e) { stack.pop(); topbar.textContent = "Jellyfin — error: " + e.message; });
+}
+function back() {
+  if (inPlayer) { closePlayer(); return; }
+  var p = stack.pop();
+  if (!p) { if (window.VIZIO && VIZIO.exitApplication) { try { VIZIO.exitApplication(); } catch (e) { } } return; }
+  items = p.items; sel = p.sel; topbar.textContent = p.title; draw();
+}
+document.addEventListener("keydown", function (e) {
+  if (inPlayer) {
+    if (e.key === "Enter" || e.key === "MediaPlayPause") togglePause();
+    else if (e.key === "ArrowLeft") seek(-10);
+    else if (e.key === "ArrowRight") seek(10);
+    else if (e.key === "ArrowUp") { if (video.paused) toggleCC(); else seek(60); }
+    else if (e.key === "ArrowDown") seek(-60);
+    else if (e.key === "Subtitle" || e.key === "Caption" || e.key === "ClosedCaptionToggle" ||
+             e.key === "KeyC" || e.key === "KeyS") toggleCC();
+    else if (e.key === "GoBack" || e.key === "Escape" || e.key === "Backspace" || e.key === "BrowserBack") closePlayer();
+    else showCtrl(true);
+    e.preventDefault(); return;
+  }
+  var first = grid.children[0];
+  var per = Math.max(1, first ? Math.floor(grid.clientWidth / first.offsetWidth) : 6);
+  if (e.key === "ArrowRight") { sel = Math.min(sel + 1, items.length - 1); draw(); }
+  else if (e.key === "ArrowLeft") { sel = Math.max(sel - 1, 0); draw(); }
+  else if (e.key === "ArrowDown") { sel = Math.min(sel + per, items.length - 1); draw(); }
+  else if (e.key === "ArrowUp") { sel = Math.max(sel - per, 0); draw(); }
+  else if (e.key === "Enter" || e.key === "MediaPlayPause") { if (items[sel]) openItem(items[sel]); }
+  else if (e.key === "GoBack" || e.key === "Escape" || e.key === "Backspace" || e.key === "BrowserBack") back();
+});
+grid.addEventListener("click", function (e) {
+  var c = e.target.closest ? e.target.closest(".card") : null;
+  if (c) { sel = +c.getAttribute("i"); draw(); openItem(items[sel]); }
+});
+
+(function () { var s = document.createElement("script");
+  s.src = "http://127.0.0.1:12345/scfs/cl/js/vizio-companion-lib.js"; document.head.appendChild(s); })();
+api("/Users/" + UID + "/Views").then(function (r) {
+  r.Items.unshift({ Id: "sports-tile", Name: "Sports", Type: "SportsTile" });
+  render(r.Items);
+})
+  .catch(function (e) { topbar.textContent = "Jellyfin — " + e.message; });
+</script></body></html>
