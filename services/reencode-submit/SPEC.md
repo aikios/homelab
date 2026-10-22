@@ -25,3 +25,11 @@ deploy/install.sh reencode-submit     # no units — just makes the CLI present 
 ```
 Stdlib only. The queue dirs (`queue/claimed/done/failed`) are runtime state,
 created on first run, and live outside the repo under `~/reencode_farm`.
+
+## Auto-scan (wired into the download workflow)
+`reencode-submit.timer` runs `--scan` every 5 min (`OnUnitActiveSec=5min`), so
+media imported by Radarr/Sonarr is queued for the GPU farm within ~5 min with no
+manual step. `--scan` is idempotent (skips queued/claimed/done), so the poll is
+cheap. Event-driven *arr hooks were avoided because the *arr apps run in Docker
+and can't reach the host queue without bind-mount plumbing; the 5-min poll is
+near-immediate for a background batch op. Deploy installs + enables the timer.

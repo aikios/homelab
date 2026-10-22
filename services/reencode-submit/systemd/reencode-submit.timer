@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll every 5 min for non-direct-playable media and queue it for the re-encode farm
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=false
+
+[Install]
+WantedBy=timers.target
