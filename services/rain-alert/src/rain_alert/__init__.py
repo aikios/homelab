@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -41,6 +42,11 @@ TIMEZONE = "America/Chicago"
 # "Significant chance of rain" = today's max hourly precipitation probability at
 # or above this.
 RAIN_PROBABILITY_THRESHOLD = 40
+
+# Open-Meteo occasionally returns a transient 5xx or drops the connection. A
+# once-a-day job must not go hard-down over a momentary blip, so retry a few
+# times with exponential backoff before giving up.
+FETCH_RETRIES = 3
 
 MESSAGE = (
     "🌧️ Rain is likely today ({prob}% chance, ~{amount:.2f} in expected). "
@@ -72,7 +78,13 @@ def resolve_home() -> tuple[float, float] | None:
 
 
 def fetch_today_forecast(lat: float, lon: float) -> tuple[int, float]:
-    """Return (max precipitation probability %, precipitation sum in inches) for today."""
+    """Return (max precipitation probability %, precipitation sum in inches) for today.
+
+    Retries transient failures (``urllib`` raises ``URLError`` / ``HTTPError`` /
+    socket timeouts, all ``OSError`` subclasses) with exponential backoff, and
+    re-raises the last error if every attempt fails so the caller can decide how
+    to degrade.
+    """
     url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode({
         "latitude": lat,
         "longitude": lon,
@@ -81,12 +93,21 @@ def fetch_today_forecast(lat: float, lon: float) -> tuple[int, float]:
         "forecast_days": 1,
         "precipitation_unit": "inch",
     })
-    with urllib.request.urlopen(url, timeout=20) as resp:
-        daily = json.load(resp)["daily"]
-    return (
-        int(daily["precipitation_probability_max"][0] or 0),
-        float(daily["precipitation_sum"][0] or 0),
-    )
+    last_exc: OSError | None = None
+    for attempt in range(FETCH_RETRIES):
+        try:
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                daily = json.load(resp)["daily"]
+            return (
+                int(daily["precipitation_probability_max"][0] or 0),
+                float(daily["precipitation_sum"][0] or 0),
+            )
+        except OSError as exc:  # URLError/HTTPError/timeout all subclass OSError
+            last_exc = exc
+            if attempt < FETCH_RETRIES - 1:
+                time.sleep(2**attempt)  # 1s, 2s, 4s
+    assert last_exc is not None  # the loop body ran at least once
+    raise last_exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,7 +121,16 @@ def main(argv: list[str] | None = None) -> int:
             print("no home location (HA unreadable, RAIN_ALERT_LAT/LON unset)")
         return 0
     lat, lon = home
-    prob, amount = fetch_today_forecast(lat, lon)
+    try:
+        prob, amount = fetch_today_forecast(lat, lon)
+    except OSError as exc:
+        # Transient upstream outage (e.g. Open-Meteo 503) survived every retry.
+        # Degrade silently like a missing location instead of failing the unit —
+        # the timer will try again tomorrow.
+        log(f"forecast fetch failed after {FETCH_RETRIES} tries ({exc}) — skipping")
+        if dry_run:
+            print(f"forecast fetch failed after {FETCH_RETRIES} tries: {exc}")
+        return 0
     rainy = prob >= RAIN_PROBABILITY_THRESHOLD
     summary = (
         f"rain prob max={prob}% sum={amount:.2f}in "
