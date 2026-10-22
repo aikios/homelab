@@ -1,0 +1,17 @@
+[Unit]
+Description=reencode-worker — GPU re-encode farm worker (polls the media host's job queue)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/reencode-worker
+# FARM_SSH_HOST / JELLYFIN_URL / JELLYFIN_API_KEY live in the gitignored .env.
+EnvironmentFile=%%REPO%%/services/reencode-worker/.env
+# Stdlib-only + ffmpeg/ssh CLIs, so it runs on the system python, not the uv venv.
+ExecStart=/usr/bin/python3 %%REPO%%/services/reencode-worker/src/reencode_worker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

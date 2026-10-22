@@ -10,6 +10,16 @@ dependencies = [
 
 [tool.uv.workspace]
 members = ["libs/*", "services/*"]
+# TV-stack services run on their own interpreter (sports-api: a dedicated
+# playwright venv; reencode-*/tv-watch: the system python3 + ffmpeg/ssh), not the
+# shared workspace venv, so they are not uv packages — keep them out of member
+# globbing or `uv sync` fails looking for their pyproject.toml.
+exclude = [
+    "services/sports-api",
+    "services/tv-watch",
+    "services/reencode-worker",
+    "services/reencode-submit",
+]
 
 [tool.uv.sources]
 homelab-core = { workspace = true }
