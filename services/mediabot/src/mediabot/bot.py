@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import functools
+import os
 import time
 import traceback
 
@@ -27,6 +29,9 @@ IDLE_EVICT = 30 * 60
 POLL_SECS = 45
 TURN_TIMEOUT = 330          # hard ceiling on one agent turn (agent's own cap is 300)
 RESET_WORDS = {"reset", "/reset", "forget", "new chat", "clear", "start over"}
+
+DEBUG_CID = 1                              # sentinel channel id for the local debug path
+DEBUG_SOCK = CFG.state_dir / "debug.sock"  # unix socket to inject "DMs" without Discord
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -62,6 +67,8 @@ async def _send(channel: discord.abc.Messageable, text: str) -> None:
 async def on_ready() -> None:
     print(f"mediabot online as {client.user} — owner {CFG.owner_discord_id}")
     client.loop.create_task(_poller())
+    if CFG.debug_sock:
+        client.loop.create_task(_debug_server())
 
 
 @client.event
@@ -499,6 +506,86 @@ def _notify_owner(text: str) -> None:
         asyncio.run_coroutine_threadsafe(_go(), client.loop).result(timeout=20)
     except Exception:  # noqa: BLE001
         pass
+
+
+# ───────────────────  local debug channel ("DM" without Discord)  ───────────────────
+# A unix socket on the LIVE bot that runs one real agent turn per injected prompt,
+# reusing the exact _attempt path (same tools, cost meter, job poller). Local-only
+# (0600); see debug.py for the client (mediabot-dm). Background notifications from
+# debug-initiated jobs fall through to the owner's Discord DM via _notify.
+
+class _DebugChannel:
+    """Stand-in for a discord channel so the debug turn reuses _attempt/_send;
+    collects everything 'sent' so the socket client gets the full reply."""
+
+    def __init__(self) -> None:
+        self.id = DEBUG_CID
+        self._out: list[str] = []
+
+    def typing(self):
+        @contextlib.asynccontextmanager
+        async def _noop():
+            yield
+        return _noop()
+
+    async def send(self, text: str) -> None:
+        self._out.append(text)
+
+    def collected(self) -> str:
+        return "\n".join(self._out)
+
+
+async def _debug_handle(content: str) -> str:
+    """Run one agent turn for an injected prompt, as if it were an owner DM."""
+    _evict_idle()
+    sess = _sess(DEBUG_CID)
+    async with sess["lock"]:
+        sess["last"] = time.time()
+        base = _repair_history(sess["messages"])
+        ch = _DebugChannel()
+        reply, new_msgs, usages, note = await _attempt(DEBUG_CID, base, content, ch)
+        if reply is None:
+            sess["errors"] = sess.get("errors", 0) + 1
+            sess["messages"] = []
+            return f"⚠️ {note}"
+        sess["messages"] = _repair_history(new_msgs)
+        sess["errors"] = 0
+        try:
+            costmeter.record(CFG.model, usages)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        extra = ch.collected()
+        return f"{extra}\n{reply}".strip() if extra else reply
+
+
+async def _debug_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    try:
+        data = await reader.read(16384)
+        prompt = data.decode(errors="replace").strip()
+        if prompt:
+            try:
+                reply = await _debug_handle(prompt)
+            except Exception as e:  # noqa: BLE001
+                traceback.print_exc()
+                reply = f"debug turn error: {e}"
+            writer.write(reply.encode())
+            await writer.drain()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+    finally:
+        with contextlib.suppress(Exception):
+            writer.close()
+
+
+async def _debug_server() -> None:
+    with contextlib.suppress(FileNotFoundError):
+        DEBUG_SOCK.unlink()
+    server = await asyncio.start_unix_server(_debug_conn, path=str(DEBUG_SOCK))
+    with contextlib.suppress(OSError):
+        os.chmod(DEBUG_SOCK, 0o600)
+    print(f"debug DM socket listening at {DEBUG_SOCK}")
+    async with server:
+        await server.serve_forever()
 
 
 def main() -> None:
