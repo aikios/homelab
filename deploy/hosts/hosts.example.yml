@@ -5,10 +5,10 @@
 hosts:
   example-server:               # e.g. your home server
     address: user@server.lan    # ssh target (real one goes in hosts.local.yml)
-    services: [rain-alert, topic-watcher, mediabot]
+    services: [rain-alert, topic-watcher, mediabot, sports-api, tv-watch, reencode-submit]
     stacks:   [arr-stack, jellyfin-mcp, flaresolverr, matter-server, homeassistant, openclaw]
 
-  example-spare:                # a second box you want some services on
-    address: user@spare.lan
-    services: [rain-alert]
+  example-gpu-host:             # a box with a GPU for the re-encode farm
+    address: user@gpu.lan
+    services: [sports-api, reencode-worker]   # sports-api here is the :8098 fallback
     stacks:   []
