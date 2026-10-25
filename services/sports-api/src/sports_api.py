@@ -43,6 +43,9 @@ _cache = {"schedule": (0, None), "event": {}, "prepare": {}}
 SCHED_TTL = 60
 PREPARE_TTL = 600
 MAX_CTX = 8
+# Event paths are /<sport>/<id>; the id is usually numeric but can be a slug
+# (e.g. the always-on /nfl/redzone channel).
+PATH_RE = re.compile(r"^/[a-z0-9-]+/[a-z0-9-]+$")
 
 M3U8_RE = re.compile(r'https?://[^\s"\'<>\\]+\.m3u8[^\s"\'<>\\]*')
 MP4_RE = re.compile(r'https?://[^\s"\'<>\\]+\.mp4[^\s"\'<>\\]*')
@@ -239,7 +242,7 @@ def schedule():
     text = body.decode("utf-8", "replace")
     games = []
     for m in re.finditer(
-            r'<a href="(/[a-z0-9-]+/[0-9]+)"[^>]*class="([^"]*game-row[^"]*)"[^>]*aria-label="([^"]*)"', text):
+            r'<a href="(/[a-z0-9-]+/[a-z0-9-]+)"[^>]*class="([^"]*game-row[^"]*)"[^>]*aria-label="([^"]*)"', text):
         path, cls, label = m.group(1), m.group(2), m.group(3)
         parts = [p.strip() for p in label.split(" - ")]
         games.append({
@@ -464,12 +467,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, schedule())
             if u.path == "/event":
                 path = (q.get("path") or [""])[0]
-                if not re.match(r"^/[a-z0-9-]+/[0-9]+$", path):
+                if not PATH_RE.match(path):
                     return self.reply(400, {"error": "bad path"})
                 return self.reply(200, event(path))
             if u.path == "/prepare":
                 path = (q.get("path") or [""])[0]
-                if not re.match(r"^/[a-z0-9-]+/[0-9]+$", path):
+                if not PATH_RE.match(path):
                     return self.reply(400, {"error": "bad path"})
                 return self.reply(200, prepare(path))
             m = re.match(r"^/pxy/([0-9a-f]+)/(.+)$", u.path)
