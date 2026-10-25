@@ -42,6 +42,7 @@ body { background-color:#dfe3ec;
 .srow .mark { min-width:38px; font-size:22px; margin-right:16px; color:#2e8b2e; }
 .srow.dead .mark { color:#8d97ad; }
 .srow.dead .lbl { color:#8d97ad; }
+.srow.pend .mark { color:#c9a227; }
 .srow .dom { color:#6a7590; font-size:17px; margin-left:auto; padding-left:20px; }
 #player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
 #v { width:100%; height:100%; object-fit:contain; }
@@ -70,7 +71,9 @@ body { background-color:#dfe3ec;
 <div id="toast"></div>
 <script src="hls.light.min.js"></script>
 <script>
-var API = "http://" + location.hostname + ":8100";
+// ?api=<port> points the page at another sports-api instance (dev testing).
+var API = "http://" + location.hostname + ":" +
+  ((location.search.match(/[?&]api=(\d+)/) || [0, "8100"])[1]);
 var BACKURL = (function () {
   var m = location.search.match(/[?&]back=([^&]+)/);
   if (m) return decodeURIComponent(m[1]);
@@ -80,6 +83,7 @@ var BACKURL = (function () {
 var view = "list", games = [], sel = 0, curEvent = null, curTitle = "";
 var tabs = [], tab = 0, rows = [];
 var prep = null, psrc = 0, cands = [], candIdx = 0, hls = null, povT = null;
+var prepGen = 0, autoPlayed = false, tried = {};
 
 function goBack() { location.href = BACKURL || "jellyfin.html"; }
 function toast(m, ms) {
@@ -158,38 +162,85 @@ function drawList() {
   if (rr[sel]) { rr[sel].classList.add("focused"); rr[sel].scrollIntoView({ block: "nearest" }); }
 }
 
-/* ---------- SOURCES (pre-resolved) ---------- */
+/* ---------- SOURCES (progressive) ---------- */
+/* /prepare is a long-poll on a server-side job that checks every source (best
+   hosts first) and reports each verdict as it lands: show the list right away,
+   fill in marks as they arrive, and start the first working stream at once. */
 function openEvent(g) {
-  curEvent = g; curTitle = g.title; psrc = 0;
+  curEvent = g; curTitle = g.title; psrc = 0; prep = null;
+  autoPlayed = false; tried = {};
+  var gen = ++prepGen;
   busy(true, "Finding working streams…");
-  getJSON(API + "/prepare?path=" + encodeURIComponent(g.path), 45000).then(function (d) {
-    prep = d; busy(false);
-    curTitle = d.title || g.title;
+  pollPrep(g, gen, -1, "", 0);
+}
+function pollPrep(g, gen, since, jid, fails) {
+  var u = API + "/prepare?path=" + encodeURIComponent(g.path) +
+    "&since=" + since + "&jid=" + jid + "&wait=15";
+  getJSON(u, 30000).then(function (d) {
+    if (gen !== prepGen) return;
+    showPrep(d);
+    if (!d.done) { pollPrep(g, gen, d.version, d.jid || "", 0); return; }
+    if (!d.ok_count) { busy(false); toast("No working sources found for this game", 4000); }
+  }).catch(function (e) {
+    if (gen !== prepGen) return;
+    if (fails < 2) { pollPrep(g, gen, -1, "", fails + 1); return; }
+    busy(false); toast("Prepare error: " + e.message);
+  });
+}
+function showPrep(d) {
+  prep = d;
+  curTitle = d.title || curTitle;
+  if (view === "list") {
     view = "src";
     document.getElementById("wrap").style.display = "none";
     document.getElementById("tabs").style.display = "none";
     document.getElementById("sources").style.display = "block";
-    document.getElementById("title").textContent = curTitle;
-    var playable = d.sources.filter(function (s) { return s.ok; });
-    document.getElementById("shead").textContent =
-      d.ok_count + " of " + d.sources.length + " sources working — BACK returns to schedule";
-    var sl = document.getElementById("slist");
-    sl.innerHTML = "";
-    d.sources.forEach(function (s, i) {
-      var r = document.createElement("div");
-      r.className = "srow" + (s.ok ? "" : " dead");
-      var dom = s.url.replace(/^https?:\/\/([^\/]+).*/, "$1");
-      r.innerHTML = '<div class="mark">' + (s.ok ? "\u2713" : "\u2717") + "</div>" +
-        '<div class="lbl">' + s.label + "</div><div class='dom'>" + dom + "</div>";
-      r.onclick = (function (ss, ii) { return function () {
-        if (!ss.ok) { toast("This source has no direct stream"); return; }
-        psrc = ii; playSource(ss.candidates);
-      }; })(s, i);
-      sl.appendChild(r);
-    });
-    if (playable.length) playSource(playable[0].candidates);
-    else toast("No working sources found for this game", 4000);
-  }).catch(function (e) { busy(false); toast("Prepare error: " + e.message); });
+  }
+  document.getElementById("title").textContent = curTitle;
+  document.getElementById("shead").textContent = d.done ?
+    (d.ok_count + " of " + d.sources.length + " sources working — BACK returns to schedule") :
+    ("Checking sources… " + d.checked + "/" + d.sources.length + " checked, " +
+     d.ok_count + " working");
+  if (!autoPlayed) {
+    busy(true, d.sources.length ? ("Finding working streams… " + d.checked + "/" +
+      d.sources.length + " checked") : "Finding working streams…");
+  }
+  var sl = document.getElementById("slist");
+  sl.innerHTML = "";
+  d.sources.forEach(function (s, i) {
+    var st = s.state || (s.ok ? "ok" : "dead");
+    var r = document.createElement("div");
+    r.className = "srow" + (st === "ok" ? "" : (st === "pending" ? " pend" : " dead"));
+    var dom = s.url.replace(/^https?:\/\/([^\/]+).*/, "$1");
+    r.innerHTML = '<div class="mark">' +
+      (st === "ok" ? "\u2713" : (st === "pending" ? "\u2026" : "\u2717")) + "</div>" +
+      '<div class="lbl">' + s.label + "</div><div class='dom'>" + dom + "</div>";
+    r.onclick = (function (ii) { return function () { psrc = ii; pickSource(); }; })(i);
+    sl.appendChild(r);
+  });
+  drawSrc();
+  if (!autoPlayed && view === "src") {
+    var first = nextOk(-1);
+    if (first >= 0) { autoPlayed = true; busy(false); psrc = first; startSource(first); }
+  }
+}
+function nextOk(after) {
+  if (!prep) return -1;
+  for (var i = after + 1; i < prep.sources.length; i++) {
+    if (prep.sources[i].ok && !tried[prep.sources[i].url]) return i;
+  }
+  return -1;
+}
+function pickSource() {
+  var s = prep && prep.sources[psrc];
+  if (!s) return;
+  if (s.ok) { autoPlayed = true; busy(false); startSource(psrc); }
+  else if (s.state === "pending") toast("Still checking this source…");
+  else toast("This source has no direct stream");
+}
+function startSource(i) {
+  psrc = i; tried[prep.sources[i].url] = true;
+  playSource(prep.sources[i].candidates);
 }
 function drawSrc() {
   var rr = document.querySelectorAll("#slist .srow");
@@ -197,6 +248,7 @@ function drawSrc() {
   if (rr[psrc]) { rr[psrc].classList.add("focused"); rr[psrc].scrollIntoView({ block: "nearest" }); }
 }
 function backToList() {
+  prepGen++; busy(false);
   document.getElementById("sources").style.display = "none";
   document.getElementById("wrap").style.display = "block";
   document.getElementById("tabs").style.display = "block";
@@ -215,10 +267,20 @@ function tryCand() {
   var v = document.getElementById("v");
   if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
   if (candIdx >= cands.length) {
-    closePlayer(); toast("All sources failed"); return;
+    var nx = nextOk(psrc);
+    if (nx < 0) nx = nextOk(-1);
+    if (nx >= 0) {
+      toast("Switching to " + prep.sources[nx].label + "…", 2000);
+      startSource(nx); return;
+    }
+    closePlayer();
+    toast(prep && !prep.done ? "No working stream yet — still checking sources" :
+      "All sources failed");
+    return;
   }
   var c = cands[candIdx];
-  pov("Source " + (candIdx + 1) + "/" + cands.length + " (" + c.type + ")");
+  pov((prep && prep.sources[psrc] ? prep.sources[psrc].label + " · " : "") +
+    "stream " + (candIdx + 1) + "/" + cands.length + " (" + c.type + ")");
   v.muted = false;
   if (c.type === "mp4") {
     v.src = c.url;
@@ -290,13 +352,7 @@ document.addEventListener("keydown", function (e) {
     var n = prep ? prep.sources.length : 0;
     if (k === "ArrowDown") { psrc = Math.min(psrc + 1, n - 1); drawSrc(); }
     else if (k === "ArrowUp") { psrc = Math.max(psrc - 1, 0); drawSrc(); }
-    else if (k === "Enter" || k === "MediaPlayPause") {
-      if (prep && prep.sources[psrc]) {
-        var s = prep.sources[psrc];
-        if (!s.ok) { toast("This source has no direct stream"); }
-        else playSource(s.candidates);
-      }
-    }
+    else if (k === "Enter" || k === "MediaPlayPause") pickSource();
     else if (k === "GoBack" || k === "Escape" || k === "Backspace" || k === "BrowserBack") backToList();
     e.preventDefault(); return;
   }
