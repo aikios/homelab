@@ -113,7 +113,8 @@ Passwordless `sudo -n`.
 
 A self-hosted streaming stack for a Vizio M55-D0 (Conjure webview / Chromium 72).
 Everything the TV needs at runtime runs on **blacklodge**; **vega** is the GPU
-re-encode worker + a sports-api fallback, and the TV keeps working with vega off.
+re-encode worker + the sports-api extraction peer (blacklodge delegates `/prepare` to it,
+falling back locally), and the TV keeps working with vega off.
 This was the first **multi-host** import and the repo is now the single source of
 truth for both hosts (each has its own `git` checkout; services run from it).
 
