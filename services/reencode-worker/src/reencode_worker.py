@@ -7,6 +7,7 @@
 import fcntl
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -42,6 +43,20 @@ def move(name, dest):
     ssh(f"mv ~/{QUEUE_DIR}/claimed/{name} ~/{QUEUE_DIR}/{dest}")
 
 
+def file_job(name, job, dest, result):
+    """Record the outcome in the job json (read by the media host's notifier),
+    then file it. The write lands in claimed/ first so the move into done/ or
+    failed/ — what the notifier watches — is atomic."""
+    job["result"] = dict(job.pop("result_info", {}), **result,
+                         worker=socket.gethostname(), finished=int(time.time()))
+    r = subprocess.run(core.SSH + [f"cat > ~/{QUEUE_DIR}/claimed/{name}"],
+                       input=json.dumps(job, indent=1), text=True,
+                       capture_output=True, check=False)
+    if r.returncode != 0:
+        core.log("could not record result for " + name + ": " + r.stderr.strip()[-150:])
+    move(name, dest)
+
+
 def main():
     core.log(f"worker up (polling ~/{QUEUE_DIR}/queue on {core.HOST})")
     while True:
@@ -59,11 +74,12 @@ def main():
                 core.log("job " + name + ": " + (job.get("source") or "?"))
                 try:
                     result = core.process_job(job)
-                    move(name, "done")
+                    file_job(name, job, "done", {"status": "done", "detail": result})
                     core.log("job " + name + " DONE: " + result)
                 except Exception as e:  # noqa: BLE001 — one bad job must not kill the worker
                     try:
-                        move(name, "failed")
+                        file_job(name, job, "failed",
+                                 {"status": "failed", "error": str(e)[:300]})
                     except Exception as move_err:  # noqa: BLE001 — best-effort filing
                         core.log("could not file job " + name + " as failed: " + str(move_err)[:150])
                     core.log("job " + name + " FAILED: " + str(e)[:300])

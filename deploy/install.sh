@@ -5,7 +5,7 @@
 #
 # Assumes: this repo is checked out on the host, uv is installed, and
 # passwordless sudo is available (for copying/enabling systemd units).
-# Timers and Restart=always services are enabled+started; oneshots are left
+# Timers, path units and Restart=always services are enabled+started; oneshots are left
 # 'static' (their .timer drives them).
 set -euo pipefail
 
@@ -31,7 +31,7 @@ echo "==> syncing workspace env (one lockfile, all members)"
 
 if compgen -G "$dir/systemd/*" >/dev/null; then
   echo "==> installing systemd units for $svc"
-  for unit in "$dir"/systemd/*.service "$dir"/systemd/*.timer; do
+  for unit in "$dir"/systemd/*.service "$dir"/systemd/*.timer "$dir"/systemd/*.path; do
     [ -e "$unit" ] || continue
     sed -e "s|%%DEPLOY_USER%%|$DEPLOY_USER|g" \
         -e "s|%%REPO%%|$REPO|g" \
@@ -40,10 +40,10 @@ if compgen -G "$dir/systemd/*" >/dev/null; then
     echo "   installed $(basename "$unit")"
   done
   sudo -n systemctl daemon-reload
-  for unit in "$dir"/systemd/*.timer "$dir"/systemd/*.service; do
+  for unit in "$dir"/systemd/*.timer "$dir"/systemd/*.path "$dir"/systemd/*.service; do
     [ -e "$unit" ] || continue
     base="$(basename "$unit")"
-    if [[ "$base" == *.timer ]] || grep -q 'Restart=always' "$unit"; then
+    if [[ "$base" == *.timer || "$base" == *.path ]] || grep -q 'Restart=always' "$unit"; then
       sudo -n systemctl enable --now "$base"
       echo "   enabled $base"
     fi

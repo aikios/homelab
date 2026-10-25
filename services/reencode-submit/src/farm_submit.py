@@ -17,6 +17,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+import farm_notify
+
 
 def _load_env():
     """This is a plain CLI (no systemd EnvironmentFile), so load the service's
@@ -90,6 +92,7 @@ def submit(path, **extra):
         return None
     job = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + hex(abs(hash(path)))[2:8],
            "source": path,
+           "source_bytes": st.st_size,
            "replace": True,
            "extract_subs": True,
            "refresh": True}
@@ -98,14 +101,14 @@ def submit(path, **extra):
     with open(fn, "w") as f:
         json.dump(job, f, indent=1)
     log("submitted: " + path)
-    return job["id"]
+    return job
 
 
 def scan():
     items = api("/Items?Recursive=true&IncludeItemTypes=Movie,Episode"
                 "&Fields=MediaSources,Path")["Items"]
     have = known_sources()
-    n = 0
+    queued = []
     for it in items:
         ms = (it.get("MediaSources") or [{}])[0]
         path = ms.get("Path") or it.get("Path")
@@ -121,10 +124,16 @@ def scan():
                     and a.get("Codec") == "aac")
         if friendly or path in have:
             continue
-        if submit(path):
-            n += 1
-    log("scan complete: " + str(n) + " job(s) submitted")
-    return n
+        why = (f"{ms.get('Container') or '?'} · "
+               f"{v.get('Codec') or '?'}/{a.get('Codec') or '?'}")
+        job = submit(path, why=why)
+        if job:
+            queued.append(job)
+    log("scan complete: " + str(len(queued)) + " job(s) submitted")
+    farm_notify.notify_submitted(queued)
+    # backstop for a missed reencode-notify.path trigger; no-op if nothing new
+    farm_notify.notify_results()
+    return len(queued)
 
 
 def show():
@@ -152,8 +161,7 @@ def main():
     elif args[0] == "--list":
         show()
     else:
-        for p in args:
-            submit(p)
+        farm_notify.notify_submitted([j for j in map(submit, args) if j])
 
 
 if __name__ == "__main__":

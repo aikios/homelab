@@ -161,7 +161,10 @@ def refresh_library():
 
 def process_job(job):
     """Returns a short result string; raises on failure. Original is only
-    removed after the replacement is uploaded and byte-verified."""
+    removed after the replacement is uploaded and byte-verified. Details for
+    the owner notification accumulate in job["result_info"] as steps finish
+    (so a failure after the swap still reports replaced=True)."""
+    info = job.setdefault("result_info", {})
     source = job["source"]
     if not source or not isinstance(source, str):
         raise RuntimeError("bad job: missing source")
@@ -183,6 +186,7 @@ def process_job(job):
     mode = encode(source, streams, local_mp4)
     if not mode:
         raise RuntimeError("encode failed (both modes)")
+    info.update(mode=mode, out_bytes=os.path.getsize(local_mp4))
     log("encode ok via " + mode + " (" + str(int(time.time() - t0)) + "s, " +
         str(round(os.path.getsize(local_mp4) / 1e6)) + "MB)")
 
@@ -193,6 +197,7 @@ def process_job(job):
         sidecars = extract_subs(source, streams, base)
         for _, rname in sidecars:
             log("sub sidecar: " + rname)
+    info["subs"] = len(sidecars)
 
     # upload (scp SFTP mode: raw paths, no shell quoting)
     up = run(["scp", "-o", "BatchMode=yes", local_mp4, HOST + ":" + remote_mp4])
@@ -215,6 +220,9 @@ def process_job(job):
         rm = ssh("rm " + shlex.quote(source))
         if rm.returncode != 0:
             return "uploaded (original rm failed: " + rm.stderr.strip()[-150:] + ")"
+        info["replaced"] = True
+    info["output"] = remote_mp4
+    info["secs"] = int(time.time() - t0)
 
     if job.get("refresh", True):
         refresh_library()

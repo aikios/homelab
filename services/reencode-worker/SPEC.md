@@ -11,7 +11,10 @@ without server-side transcoding.
   else pull it over ssh and re-encode to h264 with a 3-tier ffmpeg fallback
   (NVENC → VAAPI GPU-decode → CPU-decode+VAAPI-encode). Extracts text subs as
   sidecars, uploads the result, **byte-verifies the remote size before removing the
-  original**, then refreshes Jellyfin. Files the job under `done/` or `failed/`.
+  original**, then refreshes Jellyfin. Files the job under `done/` or `failed/`
+  after writing a `result` block into it (what happened, sizes, encoder, time,
+  whether the original was replaced); the media host DMs the owner from that
+  (see reencode-submit "Discord notifications").
 
 ## Config (gitignored `.env`, see `.env.example`)
 `FARM_SSH_HOST` (ssh target of the media host), `JELLYFIN_URL` + `JELLYFIN_API_KEY`

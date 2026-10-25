@@ -33,3 +33,23 @@ manual step. `--scan` is idempotent (skips queued/claimed/done), so the poll is
 cheap. Event-driven *arr hooks were avoided because the *arr apps run in Docker
 and can't reach the host queue without bind-mount plumbing; the 5-min poll is
 near-immediate for a background batch op. Deploy installs + enables the timer.
+
+## Discord notifications (`src/farm_notify.py`)
+The owner gets a DM (via homelab-core, shared bot token in `secrets/shared.env`):
+- **Queued**: one batched DM per `--scan` / explicit submit, listing each file
+  with its container, video/audio codec (from Jellyfin) and size. Jobs now carry
+  `source_bytes` + `why`.
+- **Re-encoded and replaced / failed / skipped**: the worker writes a `result`
+  block into the job json (`status`, `detail`, `mode`, `out_bytes`, `secs`, `subs`,
+  `replaced`, `error`, `worker`, `finished`) and only then `mv`-s it into `done/`
+  or `failed/`. `reencode-notify.path` (PathChanged on both dirs) fires
+  `reencode-notify.service` the moment that happens; `--scan` also runs the
+  notifier as a backstop for a missed trigger.
+- Already-reported ids live in `~/reencode_farm/notified.json` (the first run seeds
+  it with the existing backlog so nothing old is replayed). An id is only marked
+  after Discord accepts the DM, so an outage retries on the next fire; a flock
+  serialises the path unit and the backstop. Sending is best-effort and never
+  breaks submitting or filing.
+- The path unit hard-codes the default queue dir (`/home/<user>/reencode_farm`);
+  change it there too if you override `FARM_QUEUE_DIR`.
+- Tests: `python3 -m unittest discover -s services/reencode-submit/tests`.
