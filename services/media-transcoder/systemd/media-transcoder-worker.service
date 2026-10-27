@@ -1,0 +1,16 @@
+[Unit]
+Description=media-transcoder worker — re-encodes queued jobs on this GPU host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/media-transcoder
+# MEDIA_TRANSCODER_SSH_HOST / JELLYFIN_URL / JELLYFIN_API_KEY live in the gitignored .env.
+EnvironmentFile=%%REPO%%/services/media-transcoder/.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% media-transcoder-worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

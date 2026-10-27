@@ -1,0 +1,9 @@
+[Unit]
+Description=media-transcoder notify — DM the owner about newly finished/failed re-encodes
+
+[Service]
+Type=oneshot
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/media-transcoder
+Environment=HOMELAB_SHARED_ENV=%%REPO%%/secrets/shared.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% media-transcoder-notify

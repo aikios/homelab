@@ -17,8 +17,6 @@ members = ["libs/*", "services/*"]
 exclude = [
     "services/sports-api",
     "services/tv-watch",
-    "services/reencode-worker",
-    "services/reencode-submit",
 ]
 
 [tool.uv.sources]

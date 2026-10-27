@@ -1,5 +1,5 @@
 [Unit]
-Description=Poll every 5 min for non-direct-playable media and queue it for the re-encode farm
+Description=Every 5 min, queue media the TV can't direct-play for re-encoding
 
 [Timer]
 OnBootSec=2min

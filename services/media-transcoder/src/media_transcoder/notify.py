@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-# farm_notify.py -- Discord DMs for the re-encode farm (runs on the media host).
+# notify.py -- media-transcoder Discord DMs (runs on the media host).
 #
-#   notify_submitted(jobs)   called by farm_submit: one batched DM per run
-#   farm_notify.py           report every newly filed done/ or failed/ job
-#                            (fired by reencode-notify.path the moment the
+#   notify_submitted(jobs)   called by submit: one batched DM per run
+#   media-transcoder-notify  report every newly filed done/ or failed/ job
+#                            (fired by media-transcoder-notify.path the moment the
 #                            worker files a job, so there is no poll delay)
 #
 # Delivery goes through homelab-core's Discord helper (shared bot token from
@@ -16,16 +15,9 @@ import fcntl
 import glob
 import json
 import os
-import sys
 import time
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
-# homelab-core is stdlib-only, so the system python can import it straight from
-# the checkout (this service is not a uv workspace member).
-sys.path.insert(0, str(REPO / "libs" / "core" / "src"))
-
-BASE = os.path.expanduser(os.environ.get("FARM_QUEUE_DIR", "~/reencode_farm"))
+BASE = os.path.expanduser(os.environ.get("MEDIA_TRANSCODER_QUEUE_DIR", "~/reencode_farm"))
 STATE = os.path.join(BASE, "notified.json")
 MAX_LINES = 15  # per DM; the rest are summarised as "...and N more"
 
@@ -174,5 +166,9 @@ def _notify_results():
     return len(new)
 
 
-if __name__ == "__main__":
+def main():
     notify_results()
+
+
+if __name__ == "__main__":
+    main()

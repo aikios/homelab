@@ -1,0 +1,11 @@
+[Unit]
+Description=Fire media-transcoder-notify the moment a worker files a job
+
+[Path]
+# Workers atomically mv finished jobs into these (default MEDIA_TRANSCODER_QUEUE_DIR).
+PathChanged=/home/%%DEPLOY_USER%%/reencode_farm/done
+PathChanged=/home/%%DEPLOY_USER%%/reencode_farm/failed
+Unit=media-transcoder-notify.service
+
+[Install]
+WantedBy=paths.target

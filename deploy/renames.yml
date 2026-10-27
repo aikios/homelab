@@ -7,3 +7,22 @@
 #   paths: {old/sub/path: new/sub/path}  optional remap while moving
 #   units: [old unit files]             stopped, disabled and removed on this host
 #   env:   {OLD_KEY: NEW_KEY}           renamed in services/<new-service>/.env
+
+media-transcoder:
+  dirs: [reencode-worker, reencode-submit]
+  paths: {state/reencode_worker.log: state/worker.log}
+  units:
+    - reencode-worker.service
+    - reencode-submit.service
+    - reencode-submit.timer
+    - reencode-notify.service
+    - reencode-notify.path
+  env:
+    FARM_SSH_HOST: MEDIA_TRANSCODER_SSH_HOST
+    REMOTE_FFPROBE: MEDIA_TRANSCODER_REMOTE_FFPROBE
+    FARM_STAGE: MEDIA_TRANSCODER_STAGE
+    FARM_LOG: MEDIA_TRANSCODER_LOG
+    FARM_REMOTE_QUEUE: MEDIA_TRANSCODER_REMOTE_QUEUE
+    FARM_LOCK: MEDIA_TRANSCODER_LOCK
+    FARM_QUEUE_DIR: MEDIA_TRANSCODER_QUEUE_DIR
+    FARM_STABLE_SECS: MEDIA_TRANSCODER_STABLE_SECS

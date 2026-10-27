@@ -1,9 +1,0 @@
-[Unit]
-Description=reencode-notify — DM the owner about newly finished/failed re-encode jobs
-
-[Service]
-Type=oneshot
-User=%%DEPLOY_USER%%
-WorkingDirectory=%%REPO%%/services/reencode-submit
-# Discord creds come from the repo secrets/shared.env via homelab-core.
-ExecStart=/usr/bin/python3 %%REPO%%/services/reencode-submit/src/farm_notify.py

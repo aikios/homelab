@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-# farm_submit.py -- blacklodge-side driver for the vega re-encode farm.
+# submit.py -- media-transcoder job submitter (runs on the media host).
 # Usage:
-#   farm_submit.py <media-file> [more files...]   submit explicit paths
-#   farm_submit.py --scan                         queue every Jellyfin item
-#                                                 that is not direct-playable
-#   farm_submit.py --list                         show queue/claimed/done/failed
-# Jobs land in ~/reencode_farm/queue/ and are claimed atomically by the vega
+#   media-transcoder-submit <media-file> [more...]  submit explicit paths
+#   media-transcoder-submit --scan                  queue every Jellyfin item
+#                                                   that is not direct-playable
+#   media-transcoder-submit --list                  show queue/claimed/done/failed
+# Jobs land in ~/reencode_farm/queue/ and are claimed atomically by a GPU-host
 # worker. Re-running --scan is safe: anything already queued/claimed/done is
 # skipped (failed jobs are retried).
 
@@ -17,13 +16,13 @@ import time
 import urllib.request
 from pathlib import Path
 
-import farm_notify
+from media_transcoder import notify
 
 
 def _load_env():
     """This is a plain CLI (no systemd EnvironmentFile), so load the service's
     gitignored .env ourselves if present. Existing env wins over the file."""
-    envfile = Path(__file__).resolve().parent.parent / ".env"
+    envfile = Path(__file__).resolve().parents[2] / ".env"
     if not envfile.exists():
         return
     for line in envfile.read_text().splitlines():
@@ -40,13 +39,13 @@ _load_env()
 # this public tree. JF defaults to the local Jellyfin (submit runs on the server).
 JF = os.environ.get("JELLYFIN_URL", "http://localhost:8096")
 API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
-BASE = os.path.expanduser(os.environ.get("FARM_QUEUE_DIR", "~/reencode_farm"))
+BASE = os.path.expanduser(os.environ.get("MEDIA_TRANSCODER_QUEUE_DIR", "~/reencode_farm"))
 STATES = ("queue", "claimed", "done")
 # A blind scan can catch a file mid-import/remux (Jellyfin may even report a
 # transient path that then vanishes). Don't queue anything that isn't settled:
 # missing, zero-size, or modified within this window. It gets picked up on a
 # later scan once stable.
-STABLE_SECS = int(os.environ.get("FARM_STABLE_SECS", "120"))
+STABLE_SECS = int(os.environ.get("MEDIA_TRANSCODER_STABLE_SECS", "120"))
 
 
 def log(msg):
@@ -130,9 +129,9 @@ def scan():
         if job:
             queued.append(job)
     log("scan complete: " + str(len(queued)) + " job(s) submitted")
-    farm_notify.notify_submitted(queued)
-    # backstop for a missed reencode-notify.path trigger; no-op if nothing new
-    farm_notify.notify_results()
+    notify.notify_submitted(queued)
+    # backstop for a missed media-transcoder-notify.path trigger; no-op if nothing new
+    notify.notify_results()
     return len(queued)
 
 
@@ -161,7 +160,7 @@ def main():
     elif args[0] == "--list":
         show()
     else:
-        farm_notify.notify_submitted([j for j in map(submit, args) if j])
+        notify.notify_submitted([j for j in map(submit, args) if j])
 
 
 if __name__ == "__main__":

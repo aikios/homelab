@@ -1,19 +1,14 @@
-"""Re-encode farm notification tests (stdlib unittest; Discord is mocked).
+"""media-transcoder tests (stdlib unittest; Discord and ssh are mocked).
 
-    python3 -m unittest discover -s services/reencode-submit/tests
+    uv run --no-sync python -m unittest discover -s services/media-transcoder/tests
 """
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest import mock
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "src"))
-sys.path.insert(0, os.path.join(HERE, "..", "..", "reencode-worker", "src"))
-
-import farm_notify as fn
+from media_transcoder import notify as fn
 
 
 class Base(unittest.TestCase):
@@ -21,7 +16,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         for d in ("queue", "claimed", "done", "failed"):
             os.makedirs(os.path.join(self.tmp.name, d))
-        self.patches = [mock.patch.object(fn, "BASE", self.tmp.name),
+        self.patches: list = [mock.patch.object(fn, "BASE", self.tmp.name),
                         mock.patch.object(fn, "STATE", os.path.join(self.tmp.name, "notified.json"))]
         for p in self.patches:
             p.start()
@@ -117,8 +112,8 @@ class SubmitTest(Base):
 
 class WorkerFilingTest(unittest.TestCase):
     def test_file_job_records_result_then_moves(self):
-        with mock.patch.dict(os.environ, {"FARM_STAGE": tempfile.mkdtemp()}):
-            import reencode_worker as w
+        with mock.patch.dict(os.environ, {"MEDIA_TRANSCODER_STAGE": tempfile.mkdtemp()}):
+            from media_transcoder import worker as w
         job = {"id": "j", "source": "/m/x.mkv",
                "result_info": {"mode": "NVIDIA", "out_bytes": 5, "replaced": True}}
         with mock.patch.object(w.subprocess, "run") as run, \

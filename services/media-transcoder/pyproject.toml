@@ -1,0 +1,18 @@
+[project]
+name = "media-transcoder"
+version = "0.1.0"
+description = "Re-encodes library files the TV can't direct-play, on a GPU host, via a job queue"
+requires-python = ">=3.10"
+dependencies = ["homelab-core"]
+
+[project.scripts]
+media-transcoder-worker = "media_transcoder.worker:main"
+media-transcoder-submit = "media_transcoder.submit:main"
+media-transcoder-notify = "media_transcoder.notify:main"
+
+[tool.uv.sources]
+homelab-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

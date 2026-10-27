@@ -1,0 +1,13 @@
+[Unit]
+Description=media-transcoder submit --scan — queue Jellyfin items the TV can't direct-play
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/media-transcoder
+# JELLYFIN_URL / JELLYFIN_API_KEY are auto-loaded by submit from the service .env;
+# the queued-files DM uses the shared Discord creds.
+Environment=HOMELAB_SHARED_ENV=%%REPO%%/secrets/shared.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% media-transcoder-submit --scan

@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# farm_core.py -- shared re-encode logic for the vega re-encode farm.
+# core.py -- media-transcoder encode logic (runs on the GPU host).
 # Worker pulls a source over ssh from blacklodge, re-encodes to mp4/h264 via
 # VAAPI (Intel UHD), extracts text subs as styled sidecars, uploads, verifies,
 # swaps in the new file and (optionally) refreshes Jellyfin.
@@ -14,16 +13,16 @@ from pathlib import Path
 
 # Config comes from the environment (the systemd unit's EnvironmentFile); no real
 # host, key, or path lives in this public tree. See .env.example.
-HOST = os.environ.get("FARM_SSH_HOST", "")  # ssh target holding the media, e.g. user@server
+HOST = os.environ.get("MEDIA_TRANSCODER_SSH_HOST", "")  # ssh target holding the media, e.g. user@server
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", HOST]
-REMOTE_FFPROBE = os.environ.get("REMOTE_FFPROBE", "/usr/lib/jellyfin-ffmpeg/ffprobe")
+REMOTE_FFPROBE = os.environ.get("MEDIA_TRANSCODER_REMOTE_FFPROBE", "/usr/lib/jellyfin-ffmpeg/ffprobe")
 JF = os.environ.get("JELLYFIN_URL", "http://localhost:8096")
 API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
-STAGE = os.environ.get("FARM_STAGE", "/tmp/reencode-farm")
+STAGE = os.environ.get("MEDIA_TRANSCODER_STAGE", "/tmp/media-transcoder")
 os.makedirs(STAGE, exist_ok=True)
-# Runtime log under the service's gitignored state/ dir (service_dir/state/).
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
-LOG = os.environ.get("FARM_LOG") or str(STATE_DIR / "reencode_worker.log")
+# Runtime log under the service's gitignored state/ dir.
+STATE_DIR = Path(__file__).resolve().parents[2] / "state"
+LOG = os.environ.get("MEDIA_TRANSCODER_LOG") or str(STATE_DIR / "worker.log")
 TEXT_SUB_CODECS = ("ass", "ssa", "srt", "subrip")
 
 

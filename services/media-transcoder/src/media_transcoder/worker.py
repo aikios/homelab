@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
-# reencode_worker.py -- vega re-encode farm worker daemon.
+# worker.py -- media-transcoder worker daemon (runs on the GPU host).
 # Polls the job queue on blacklodge (~/reencode_farm/queue) over ssh, claims one
-# job at a time, re-encodes it via farm_core, and files the job as done/failed.
+# job at a time, re-encodes it via core, and files the job as done/failed.
 # Claim protocol (ssh mv = atomic) supports multiple workers / a future farm.
 
 import fcntl
@@ -9,16 +8,14 @@ import json
 import os
 import socket
 import subprocess
-import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import farm_core as core
+from media_transcoder import core
 
-# Remote queue dir on the media host (relative to its home), matches farm_submit's
-# FARM_QUEUE_DIR there. Not a secret — just a directory name.
-QUEUE_DIR = os.environ.get("FARM_REMOTE_QUEUE", "reencode_farm")
-LOCK = os.environ.get("FARM_LOCK", "/tmp/reencode-worker.lock")
+# Remote queue dir on the media host (relative to its home), matches submit's
+# MEDIA_TRANSCODER_QUEUE_DIR there. Not a secret — just a directory name.
+QUEUE_DIR = os.environ.get("MEDIA_TRANSCODER_REMOTE_QUEUE", "reencode_farm")
+LOCK = os.environ.get("MEDIA_TRANSCODER_LOCK", "/tmp/media-transcoder-worker.lock")
 
 
 def ssh(cmdstring):
