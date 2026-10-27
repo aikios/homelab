@@ -5,7 +5,7 @@
 hosts:
   example-server:               # e.g. your home server
     address: user@server.lan    # ssh target (real one goes in hosts.local.yml)
-    services: [rain-alert, news-notifier, mediabot, stream-resolver, tv-launcher, "media-transcoder:submit,notify"]
+    services: [rain-notifier, news-notifier, mediabot, stream-resolver, tv-launcher, "media-transcoder:submit,notify"]
     stacks:   [arr-stack, jellyfin-mcp, flaresolverr, matter-server, homeassistant, openclaw]
 
   example-gpu-host:             # a box with a GPU for the re-encode farm

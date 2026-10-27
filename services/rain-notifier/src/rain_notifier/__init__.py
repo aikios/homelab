@@ -1,4 +1,4 @@
-"""rain-alert — once each morning, check today's rain chance at home and, if it
+"""rain-notifier — once each morning, check today's rain chance at home and, if it
 is significant, DM the owner to bring the patio chair inside. Silent otherwise.
 
 Deliberate constraints (shared with news-notifier):
@@ -10,9 +10,9 @@ Deliberate constraints (shared with news-notifier):
 - Stdlib only (plus homelab-core, which is also stdlib-only).
 
 Usage:
-  rain-alert              check forecast, DM only if rain is likely
-  rain-alert --dry-run    print the forecast + decision, send nothing
-  rain-alert --force      send the message regardless of forecast (test)
+  rain-notifier              check forecast, DM only if rain is likely
+  rain-notifier --dry-run    print the forecast + decision, send nothing
+  rain-notifier --force      send the message regardless of forecast (test)
 """
 from __future__ import annotations
 
@@ -31,12 +31,12 @@ HERE = Path(__file__).resolve().parent
 # Runtime state (the log) lives under state/, which the repo .gitignore excludes
 # from the tracked tree.
 STATE_DIR = HERE.parents[1] / "state"
-LOG_FILE = STATE_DIR / "rain_alert.log"
+LOG_FILE = STATE_DIR / "rain_notifier.log"
 
 TIMEZONE = "America/Chicago"
 
 # Home coordinates come from Home Assistant (core.ha). If that read fails, the
-# only fallback is an explicit RAIN_ALERT_LAT / RAIN_ALERT_LON env override — no
+# only fallback is an explicit RAIN_NOTIFIER_LAT / RAIN_NOTIFIER_LON env override — no
 # location is hardcoded here (this is a public repo).
 
 # "Significant chance of rain" = today's max hourly precipitation probability at
@@ -62,7 +62,7 @@ def log(msg: str) -> None:
 
 
 def resolve_home() -> tuple[float, float] | None:
-    """Home coordinates from Home Assistant, else a RAIN_ALERT_LAT/LON override.
+    """Home coordinates from Home Assistant, else a RAIN_NOTIFIER_LAT/LON override.
 
     Returns ``None`` if HA can't be read and no override is set — the caller then
     skips silently rather than alerting for some baked-in location.
@@ -70,10 +70,10 @@ def resolve_home() -> tuple[float, float] | None:
     try:
         return home_location()
     except Exception as exc:  # noqa: BLE001 — never let a config read kill the alert
-        lat, lon = os.environ.get("RAIN_ALERT_LAT"), os.environ.get("RAIN_ALERT_LON")
+        lat, lon = os.environ.get("RAIN_NOTIFIER_LAT"), os.environ.get("RAIN_NOTIFIER_LON")
         if lat and lon:
             return float(lat), float(lon)
-        log(f"home_location() failed ({exc}) and RAIN_ALERT_LAT/LON unset — skipping")
+        log(f"home_location() failed ({exc}) and RAIN_NOTIFIER_LAT/LON unset — skipping")
         return None
 
 
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     home = resolve_home()
     if home is None:
         if dry_run:
-            print("no home location (HA unreadable, RAIN_ALERT_LAT/LON unset)")
+            print("no home location (HA unreadable, RAIN_NOTIFIER_LAT/LON unset)")
         return 0
     lat, lon = home
     try:

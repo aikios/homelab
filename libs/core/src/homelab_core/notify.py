@@ -1,6 +1,6 @@
 """Discord delivery for homelab services.
 
-Consolidated from the news-notifier / rain-alert pattern:
+Consolidated from the news-notifier / rain-notifier pattern:
 
 - the bot token goes to ``curl`` via a stdin config (``-K -``), never on argv or
   an env var that shows up in ``ps`` / ``systemctl status``;
@@ -11,7 +11,7 @@ All services historically share one bot token (read live from the shared
 ``.env`` via :func:`homelab_core.config.shared_env`) so DMs arrive from the same
 bot the owner already talks to.
 
-Both services' private ``_discord()`` helpers are reconciled here: rain-alert
+Both services' private ``_discord()`` helpers are reconciled here: rain-notifier
 only ever sends a one-shot DM (:func:`send_discord_dm`), while news-notifier also
 needs to open the DM channel once and reuse it, send to a known channel, and
 *read* the channel back for owner commands — hence the channel-level primitives

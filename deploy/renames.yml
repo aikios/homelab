@@ -48,3 +48,8 @@ tv-launcher:
 news-notifier:
   dirs: [topic-watcher]
   units: [topic-watcher.service, topic-watcher.timer, topic-watcher-listen.service]
+
+rain-notifier:
+  dirs: [rain-alert]
+  paths: {state/rain_alert.log: state/rain_notifier.log}
+  units: [rain-alert.service, rain-alert.timer]

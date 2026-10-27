@@ -1,7 +1,7 @@
 """Read the configured home location from a local Home Assistant install.
 
 HA stores it in ``config/.storage/core.config``, which is root-owned, so this
-needs passwordless sudo on the host. Location-based services (e.g. rain-alert)
+needs passwordless sudo on the host. Location-based services (e.g. rain-notifier)
 use this so the home coordinates have a single source of truth instead of being
 hardcoded per service.
 """

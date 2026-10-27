@@ -24,7 +24,7 @@ uv run python -c "import homelab_core; print(homelab_core.__version__)"
 ## Deploy a service to a host
 ```sh
 # on the host (repo checked out, uv installed, passwordless sudo):
-deploy/install.sh rain-alert
+deploy/install.sh rain-notifier
 ```
 
 ## Bring up a whole host from the inventory

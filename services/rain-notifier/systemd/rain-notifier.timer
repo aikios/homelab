@@ -1,5 +1,5 @@
 [Unit]
-Description=Run rain-alert every morning at 08:00
+Description=Run rain-notifier every morning at 08:00
 
 [Timer]
 OnCalendar=*-*-* 08:00:00

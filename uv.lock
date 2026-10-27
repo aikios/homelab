@@ -16,7 +16,7 @@ members = [
     "media-transcoder",
     "mediabot",
     "news-notifier",
-    "rain-alert",
+    "rain-notifier",
     "stream-resolver",
     "tv-launcher",
 ]
@@ -2290,9 +2290,9 @@ wheels = [
 ]
 
 [[package]]
-name = "rain-alert"
+name = "rain-notifier"
 version = "0.1.0"
-source = { editable = "services/rain-alert" }
+source = { editable = "services/rain-notifier" }
 dependencies = [
     { name = "homelab-core" },
 ]

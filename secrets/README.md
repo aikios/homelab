@@ -8,7 +8,7 @@ Keys that multiple services need, read via `homelab_core.config.shared_env()`
 (services point `HOMELAB_SHARED_ENV` at this file in their systemd units):
 
 - `DISCORD_BOT_TOKEN`, `OWNER_DISCORD_ID` — the one Discord bot every notifier
-  (rain-alert, news-notifier) reuses, and mediabot's own identity.
+  (rain-notifier, news-notifier) reuses, and mediabot's own identity.
 - `ANTHROPIC_API_KEY` — used by mediabot.
 
 Per-service keys (arr/qbit/jellyfin URLs, media paths, cost thresholds, …) do
