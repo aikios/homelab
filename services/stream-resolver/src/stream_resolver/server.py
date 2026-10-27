@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# sports_api.py -- clean-stream extractor + HLS proxy (blacklodge :8100, vega :8098).
+# server.py -- stream-resolver: clean-stream extractor + HLS proxy (blacklodge :8100, vega :8098).
 # Headless Chromium (playwright) loads each third-party stream page,
 # executes its (often obfuscated) player JS, and we intercept the real
 # m3u8/mp4 requests. Ad domains are route-blocked so the browser never
@@ -28,14 +27,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from playwright.async_api import async_playwright
 
-PORT = int(os.environ.get("SPORTS_API_PORT", "8098"))
+PORT = int(os.environ.get("STREAM_RESOLVER_PORT", "8098"))
 # LAN host/IP the TV reaches this API at — baked into the proxy URLs we hand the
 # TV, so it must be this host's address on the TV's network. Set per host in the
 # gitignored .env (see .env.example); the loopback default is just a safe fallback.
-PXY_HOST = os.environ.get("SPORTS_API_HOST", "127.0.0.1")
+PXY_HOST = os.environ.get("STREAM_RESOLVER_HOST", "127.0.0.1")
 # Schedule/event site. Deliberately kept out of the repo: set it in the
 # gitignored .env (see .env.example).
-BASE = os.environ.get("SPORTS_SOURCE_URL", "").rstrip("/")
+BASE = os.environ.get("STREAM_RESOLVER_SOURCE_URL", "").rstrip("/")
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 AD_HOSTS = ("histats.com", "google-analytics", "googletagmanager",
@@ -52,18 +51,18 @@ PREPARE_TTL = 600     # reuse a finished job that found working streams
 DEAD_TTL = 60         # ...or one that found nothing, but retry sooner
 # Concurrent headless-browser contexts, and per-job source workers (more than
 # MAX_CTX so static fallback + validation overlap with browser work).
-MAX_CTX = int(os.environ.get("SPORTS_MAX_CTX", "8"))
+MAX_CTX = int(os.environ.get("STREAM_RESOLVER_MAX_CTX", "8"))
 WORKERS = MAX_CTX + 4
 RESOLVE_BUDGET = 16   # s per source page load, goto included
 FOUND_GRACE = 1.5     # s to keep listening after the first stream shows up
 # Optional faster peer (e.g. vega's instance) to hand /prepare to. Browser
 # extraction is CPU-bound; when the peer answers, the TV gets its (proxy-
 # rewritten) result, otherwise we resolve locally — the TV never depends on it.
-DELEGATE = os.environ.get("SPORTS_DELEGATE", "").rstrip("/")
+DELEGATE = os.environ.get("STREAM_RESOLVER_DELEGATE", "").rstrip("/")
 DELEGATE_BACKOFF = 60  # s to stop trying the peer after it fails
 _delegate_down_until = 0.0
 _delegate_seen_ok = 0.0  # last successful contact; re-ping after 30s
-STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state")
+STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "state")
 # Event paths are /<sport>/<id>; the id is usually numeric but can be a slug
 # (e.g. the always-on /nfl/redzone channel).
 PATH_RE = re.compile(r"^/[a-z0-9-]+/[a-z0-9-]+$")
@@ -774,10 +773,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-if __name__ == "__main__":
+def main():
     if not BASE:
-        raise SystemExit("SPORTS_SOURCE_URL is not set (see .env.example)")
+        raise SystemExit("STREAM_RESOLVER_SOURCE_URL is not set (see .env.example)")
     threading.Thread(target=lambda: schedule(), daemon=True).start()
     start_browser()
-    log("sports_api listening on :%d (browser up, schedule warming)" % PORT)
+    log("stream-resolver listening on :%d (browser up, schedule warming)" % PORT)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -35,9 +35,9 @@ homelab/
 │   ├── rain-alert/         #   workspace members: src/, systemd/*, SPEC.md
 │   ├── topic-watcher/
 │   ├── mediabot/
-│   ├── media-transcoder/   #   workspace member (merged reencode-worker/-submit)
-│   ├── sports-api/         #   TV stack (NOT workspace members yet — own venv /
-│   └── tv-watch/           #   system python3; excluded in pyproject.toml)
+│   ├── media-transcoder/   #   TV stack: workspace member (merged reencode-worker/-submit)
+│   ├── stream-resolver/    #   TV stack: workspace member (was sports-api)
+│   └── tv-watch/           #   TV stack: NOT a workspace member yet (system python3)
 ├── stacks/                 # third-party apps as config-as-code
 │   └── <app>/docker-compose.yml + .env.example
 ├── deploy/
@@ -112,26 +112,25 @@ Passwordless `sudo -n`.
 
 A self-hosted streaming stack for a Vizio M55-D0 (Conjure webview / Chromium 72).
 Everything the TV needs at runtime runs on **blacklodge**; **vega** is the GPU
-re-encode worker + the sports-api extraction peer (blacklodge delegates `/prepare` to it,
+re-encode worker + the stream-resolver extraction peer (blacklodge delegates `/prepare` to it,
 falling back locally), and the TV keeps working with vega off.
 This was the first **multi-host** import and the repo is now the single source of
 truth for both hosts (each has its own `git` checkout; services run from it).
 
 Flow: the TV loads `tv-watch`'s client (`jellyfin.html`) from `:8099`; the Sports
-tile calls `sports-api`, which drives headless Chromium to extract clean `.m3u8`
+tile calls `stream-resolver`, which drives headless Chromium to extract clean `.m3u8`
 streams and proxies them with referer-spoofing; media the TV can't direct-play is
 queued on blacklodge and re-encoded to h264 on vega by `media-transcoder`.
 
 | Service | Host(s) | Unit | Runtime |
 |---|---|---|---|
-| sports-api | blacklodge :8100, vega :8098 | `sports-api.service` | dedicated `~/.venvs/sports` (playwright + chromium) |
+| stream-resolver | blacklodge :8100, vega :8098 | `stream-resolver.service` | workspace venv (playwright 1.64 + chromium via `scripts/setup.sh`) |
 | tv-watch | blacklodge | `tv-watch.service` (was an `@reboot` cron) | system python3; serves payloads + watches the TV |
 | media-transcoder | blacklodge (submit, notify), vega (worker) | `media-transcoder-{submit,notify,worker}` | workspace venv + ffmpeg (NVENC/VAAPI) on vega |
 
-Conventions these four break from the rest (on purpose):
-- **Not uv workspace members** — they use their own interpreter, so they are in
-  `[tool.uv.workspace] exclude`. `install.sh` still installs their units; `uv sync`
-  skips them. sports-api's venv is built once per host by its `bootstrap.sh`.
+Conventions the TV stack breaks from the rest (on purpose):
+- tv-watch is **not yet a uv workspace member** (system python3, in
+  `[tool.uv.workspace] exclude`) until its restructure step.
 - **No server address in the tree** — the payloads derive their API base from
   `location.hostname`; hosts/ports/keys come from each service's gitignored `.env`.
 - **Extra gitignored secrets:** `tv-watch/jf_url.txt` (Jellyfin auth params) and

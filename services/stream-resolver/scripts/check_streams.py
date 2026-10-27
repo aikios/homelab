@@ -2,7 +2,7 @@
 """Pull a real segment of every working candidate THROUGH the proxy, the way
 the TV would, and report what the bytes actually are.
 
-    python3 check_streams.py http://localhost:8100 /nfl/redzone
+    python3 scripts/check_streams.py http://localhost:8100 /nfl/redzone
 
 "ts@0" is what the TV can play; "ts@N" means a disguised segment the proxy
 failed to unwrap; "IMAGE" a decoy. Stdlib only.

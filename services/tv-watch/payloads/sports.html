@@ -71,7 +71,7 @@ body { background-color:#dfe3ec;
 <div id="toast"></div>
 <script src="hls.light.min.js"></script>
 <script>
-// ?api=<port> points the page at another sports-api instance (dev testing).
+// ?api=<port> points the page at another stream-resolver instance (dev testing).
 var API = "http://" + location.hostname + ":" +
   ((location.search.match(/[?&]api=(\d+)/) || [0, "8100"])[1]);
 var BACKURL = (function () {

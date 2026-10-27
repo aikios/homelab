@@ -10,12 +10,9 @@ dependencies = [
 
 [tool.uv.workspace]
 members = ["libs/*", "services/*"]
-# TV-stack services run on their own interpreter (sports-api: a dedicated
-# playwright venv; reencode-*/tv-watch: the system python3 + ffmpeg/ssh), not the
-# shared workspace venv, so they are not uv packages — keep them out of member
-# globbing or `uv sync` fails looking for their pyproject.toml.
+# Not yet a uv package (runs on the system python3); being migrated, see SPEC.md
+# "Restructure plan". Excluded or `uv sync` fails looking for its pyproject.toml.
 exclude = [
-    "services/sports-api",
     "services/tv-watch",
 ]
 

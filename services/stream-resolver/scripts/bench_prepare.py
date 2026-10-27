@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Time a progressive /prepare against a running sports-api.
+"""Time a progressive /prepare against a running stream-resolver.
 
-    python3 bench_prepare.py http://localhost:8100 /nfl/401873012
+    python3 scripts/bench_prepare.py http://localhost:8100 /nfl/401873012
 
 Long-polls the job and prints when each verdict lands; the number that matters
 for the TV is "first ok" (time until something is playable). Stdlib only.

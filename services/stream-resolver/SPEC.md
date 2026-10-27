@@ -1,11 +1,13 @@
-# sports-api
+# stream-resolver
 
-Clean-stream extractor + HLS proxy behind the TV's "Sports" tile. Runs on
+Resolves working live sports streams and relays them to the TV: clean-stream
+extractor + HLS proxy behind the TV's "Sports" tile (formerly `sports-api`).
+The source site is a secret: it lives only in the gitignored `.env`. Runs on
 blacklodge (`:8100`, primary) and vega (`:8098`, fallback).
 
 ## How it works
 - `GET /schedule` — today's events scraped from the source site
-  (`SPORTS_SOURCE_URL`, kept only in the gitignored `.env`, never in the repo). Event paths are
+  (`STREAM_RESOLVER_SOURCE_URL`, kept only in the gitignored `.env`, never in the repo). Event paths are
   `/<sport>/<id>` where the id may be a slug (`/nfl/redzone`), not just digits.
 - `GET /event?path=/nba/123` — the raw stream-source anchors for an event.
 - `GET /prepare?path=…[&since=<version>&jid=<job>&wait=<s>]` — the one the TV
@@ -24,7 +26,7 @@ blacklodge (`:8100`, primary) and vega (`:8098`, fallback).
 - **Host priority:** per-host outcomes are kept (decayed ×0.85 per try) in
   `state/host_stats.json` (gitignored) and sources are checked best-host-first,
   so the first working stream usually lands in the first browser wave.
-- **Delegation:** if `SPORTS_DELEGATE` is set (blacklodge → vega), `/prepare` is
+- **Delegation:** if `STREAM_RESOLVER_DELEGATE` is set (blacklodge → vega), `/prepare` is
   forwarded there after a 1.5 s `/ping`; on failure it backs off 60 s and
   resolves locally. The TV never depends on the peer.
 - `GET /pxy/<sid>/<url>` — referer-spoofing HLS proxy (rewrites playlists so every
@@ -44,28 +46,29 @@ Measured 2026-10-25 (live NFL Sunday, one run each, 24–28 sources/event):
 blacklodge (4 cores) is CPU-bound (load 7.9 at 8 ctx); vega (12 cores) loads
 pages 3–4× faster — hence delegation, with blacklodge at 4 ctx to spare Jellyfin.
 
-Tools (stdlib, run against any instance):
+Tools (`scripts/`, stdlib, run against any instance):
 - `bench_prepare.py <api> <path>` — timeline of a progressive prepare.
 - `check_streams.py <api> <path>` — pulls a real segment of every candidate
   through the proxy and reports what the bytes are (`ts@0` = playable).
-- Tests: `~/.venvs/sports/bin/python3 -m unittest discover -s tests`.
+- Tests: `uv run --no-sync python -m unittest discover -s services/stream-resolver/tests`.
 
 ## Runtime
-- **Dedicated venv** `~/.venvs/sports` (python3.10 + `playwright==1.64.0`, Chromium
-  headless). Deliberately outside the shared uv workspace venv — see `bootstrap.sh`.
-  This service is excluded from the uv workspace in the root `pyproject.toml`.
-- Config via gitignored `.env` (see `.env.example`): `SPORTS_API_PORT`,
-  `SPORTS_API_HOST` (the host's LAN address, baked into the proxy URLs the TV uses),
-  `SPORTS_MAX_CTX` (browser contexts, default 8), `SPORTS_DELEGATE` (peer URL).
+- Workspace member: `playwright==1.64.0` (pinned) lives in the shared venv;
+  `scripts/setup.sh` (run by `install.sh`) fetches the matching headless Chromium
+  and installs its system libraries only if it can't launch. (Until 2026-10-26 it
+  had a dedicated `~/.venvs/sports`.)
+- Config via gitignored `.env` (see `.env.example`): `STREAM_RESOLVER_PORT`,
+  `STREAM_RESOLVER_HOST` (the host's LAN address, baked into the proxy URLs the TV
+  uses), `STREAM_RESOLVER_MAX_CTX` (browser contexts, default 8),
+  `STREAM_RESOLVER_DELEGATE` (peer URL), `STREAM_RESOLVER_SOURCE_URL`.
 - **Deploy order:** upgrade the delegate (vega) before the primary — an old peer
   doesn't speak the progressive `/prepare` protocol.
 
 ## Deploy
 ```sh
-services/sports-api/bootstrap.sh                       # one-time: build the venv + chromium
-cp services/sports-api/.env.example services/sports-api/.env   # set PORT + HOST
-deploy/install.sh sports-api                           # install + enable sports-api.service
-curl http://localhost:$SPORTS_API_PORT/schedule        # smoke test
+cp services/stream-resolver/.env.example services/stream-resolver/.env   # set PORT, HOST, SOURCE_URL
+deploy/install.sh stream-resolver        # sync, chromium setup, enable stream-resolver.service
+curl http://localhost:$STREAM_RESOLVER_PORT/schedule                       # smoke test
 ```
 The TV's `sports.html` always talks to blacklodge (`:8100`); blacklodge hands
 extraction to vega when it's up. `sports.html?api=<port>` points the page at

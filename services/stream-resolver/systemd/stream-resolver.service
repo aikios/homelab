@@ -1,0 +1,16 @@
+[Unit]
+Description=stream-resolver — resolves live sports streams + HLS proxy for the TV
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/stream-resolver
+# STREAM_RESOLVER_* (port, LAN host, source site, ...) live in the gitignored .env (per host).
+EnvironmentFile=%%REPO%%/services/stream-resolver/.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% stream-resolver
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -12,7 +12,7 @@ without ever fighting the user over an HDMI/PS5 input. blacklodge only.
   unreachable ~2.5 min then back) or a return to SmartCast; never over an active
   HDMI/TV input; quiet after the user exits mid-session or after 5 failed tries.
 - `payloads/` — the TV client: `jellyfin.html` (home + poster browser + custom
-  player), `sports.html` (→ sports-api), `hls.light.min.js` (hls.js 0.14.1, the
+  player), `sports.html` (→ stream-resolver), `hls.light.min.js` (hls.js 0.14.1, the
   last build that behaves in the TV's Chromium 72). Both pages derive their API
   base from `location.hostname`, so no server address is baked in.
 - `launcher/` — vega-side, run by hand from the deploy runbook (needs node):

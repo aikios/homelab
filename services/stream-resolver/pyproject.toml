@@ -1,0 +1,14 @@
+[project]
+name = "stream-resolver"
+version = "0.1.0"
+description = "Resolves working live sports streams (headless Chromium) and relays them to the TV via an HLS proxy"
+requires-python = ">=3.10"
+# Pinned: scripts/setup.sh downloads the Chromium build matching this version.
+dependencies = ["playwright==1.64.0"]
+
+[project.scripts]
+stream-resolver = "stream_resolver.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

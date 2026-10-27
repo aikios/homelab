@@ -1,19 +1,17 @@
-"""sports-api unit tests (stdlib unittest; no network, no browser).
+"""stream-resolver unit tests (stdlib unittest; no network, no browser).
 
-    ~/.venvs/sports/bin/python3 -m unittest discover -s services/sports-api/tests
+    uv run --no-sync python -m unittest discover -s services/stream-resolver/tests
 """
 import os
-import sys
 import tempfile
 import threading
 import time
 import unittest
 from unittest import mock
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "src"))
+from stream_resolver import server as sa
 
-import sports_api as sa
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def fixture(name):

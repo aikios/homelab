@@ -38,6 +38,12 @@ echo "==> syncing workspace env (one lockfile, all members)"
 # (.env, state/) from the old dir first. No-op when already migrated.
 "$UV" run --project "$REPO" --no-sync python "$REPO/deploy/migrate.py" "$svc"
 
+# Per-host setup beyond the venv (e.g. stream-resolver fetching Chromium).
+if [ -x "$dir/scripts/setup.sh" ]; then
+  echo "==> running $svc setup"
+  UV="$UV" "$dir/scripts/setup.sh"
+fi
+
 wanted() {  # is this unit file selected by the <cmd> filter?
   [ ${#cmds[@]} -eq 0 ] && return 0
   local stem c; stem="$(basename "${1%.*}")"
