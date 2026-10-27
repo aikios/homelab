@@ -142,26 +142,31 @@ Conventions these four break from the rest (on purpose):
 Per-service SPEC.md has the details; `tv-watch/SPEC.md` carries the client-deploy
 runbook (edit payload → push → pull → cache-bust → `tv_pwn.js launch`).
 
-## Restructure plan (2026-10-26, proposed — awaiting approval)
-Goal (user): keep `services/` **flat**, with one clear, consistent naming scheme.
+## Restructure plan (2026-10-26, agreed with the user; not started)
+Goal: keep `services/` **flat**, with one naming scheme where every name reads as
+a service and says what it does.
 
 ### Naming scheme
-Every service is `<subject>-<role>`, kebab-case. Role comes from a closed list:
+Every service is `<what it works on>-<what it does>`, kebab-case, and the second
+part is always an agent noun for the job (`-notifier`, `-resolver`, …), never the
+implementation shape (no `-api`, `-bot`, `-app`).
 
-| role    | meaning                                               |
-|---------|-------------------------------------------------------|
-| `alert` | scheduled check that DMs the owner                    |
-| `bot`   | interactive chat bot                                  |
-| `api`   | HTTP service other parts call                         |
-| `app`   | client UI served to a device (+ its launcher)         |
-| `farm`  | job queue whose workers run across hosts              |
+| now                               | new                | what it does                                                        |
+|-----------------------------------|--------------------|---------------------------------------------------------------------|
+| rain-alert                        | `rain-notifier`    | morning forecast check; DMs to bring the patio chair in             |
+| topic-watcher                     | `news-notifier`    | daily news digest for chat-managed watched topics                   |
+| mediabot                          | `media-concierge`  | Discord assistant: find, download, organize, subtitle media         |
+| sports-api                        | `stream-resolver`  | resolves working live sports streams and relays them to the TV      |
+| tv-watch                          | `tv-launcher`      | serves the TV client pages and opens them when the TV turns on      |
+| reencode-worker + reencode-submit | `media-transcoder` | re-encodes library files the TV can't play, on the GPU host         |
 
 That one name is derived everywhere, no exceptions:
 - dir `services/<name>/`, distribution `<name>`, package `<name_snake>`
 - systemd: `<name>.service`, or `<name>-<cmd>.{service,timer,path}` when a service
   has several units. **Every unit starts with its service name.**
-- env: service-specific settings are `<NAME_SNAKE_UPPER>_*`. Third-party creds/URLs
-  keep their vendor names (`JELLYFIN_URL`, `QBIT_USER`, `DISCORD_BOT_TOKEN`, …).
+- env: every service-specific setting is `<NAME_SNAKE_UPPER>_*` (incl. all of
+  mediabot's tunables). Third-party creds/URLs keep their vendor names
+  (`JELLYFIN_URL`, `QBIT_USER`, `DISCORD_BOT_TOKEN`, …).
 - runtime state in `services/<name>/state/` (gitignored).
 
 Every service has the same layout:
@@ -170,47 +175,51 @@ services/<name>/
   pyproject.toml        workspace member; [project.scripts] <name>[-<cmd>]
   src/<name_snake>/     __main__.py + modules
   systemd/              <name>[-<cmd>].{service,timer,path}
-  tests/                unittest/pytest
+  tests/
   scripts/              dev/ops tools (bench, checks, one-offs)
-  static/               files served to a device (tv-app only)
+  static/               files served to a device (tv-launcher only)
   .env.example  SPEC.md
 ```
-All services become uv workspace members: the root `exclude` list, sports-api's
-`~/.venvs/sports`, `requirements.txt` and `bootstrap.sh` go away (install.sh runs
-`playwright install chromium` for sports-api). Must be validated on both hosts.
+All services become uv workspace members: the root `exclude` list, the dedicated
+`~/.venvs/sports`, `requirements.txt` and `bootstrap.sh` go away (playwright joins
+the shared venv; install.sh runs `playwright install chromium` for
+stream-resolver). Validate on both hosts before relying on it.
 
-### Renames
-| now                                 | new             | units                                                                 |
-|-------------------------------------|-----------------|-----------------------------------------------------------------------|
-| rain-alert                          | rain-alert      | rain-alert.{service,timer} (unchanged)                                 |
-| topic-watcher                       | news-alert      | news-alert.{service,timer}, news-alert-listen.service                  |
-| mediabot                            | media-bot       | media-bot.service, media-bot-trash.{service,timer}                     |
-| sports-api                          | sports-api      | sports-api.service (unchanged; tools → scripts/)                      |
-| tv-watch                            | tv-app          | tv-app.service; payloads/ → static/; bin/+launcher/ → scripts/         |
-| reencode-worker + reencode-submit   | reencode-farm   | reencode-farm-worker (vega), -submit.{service,timer}, -notify.{service,path} |
+### Units after the rename
+- rain-notifier.{service,timer}
+- news-notifier.{service,timer}, news-notifier-listen.service
+- media-concierge.service, media-concierge-trash.{service,timer}
+- stream-resolver.service (both hosts)
+- tv-launcher.service
+- media-transcoder-worker.service (GPU host), media-transcoder-submit.{service,timer},
+  media-transcoder-notify.{service,path}
 
-Also: `tv_pwn.js` → `tv_launch.js`; `farm_core`/`farm_submit`/`farm_notify`/
-`reencode_worker` → modules `core`/`submit`/`notify`/`worker` of one `reencode_farm`
-package (the shared queue code stops being split across two dirs); mediabot drops
-its duplicate README.md (SPEC.md is the doc); `services/.gitkeep` goes.
-Env renames: `FARM_*` → `REENCODE_FARM_*`, `SPORTS_{MAX_CTX,DELEGATE,SOURCE_URL}` →
-`SPORTS_API_*`, `TV_HOST`/`PAYLOAD_PORT` → `TV_APP_*`, mediabot tunables
-(`SUBS_*`, `QBMON_*`, `COST_*`, …) → `MEDIA_BOT_*`, topic-watcher → `NEWS_ALERT_*`.
+Also: `tv_pwn.js` -> `tv_launch.js`; `payloads/` -> `static/`, `bin/`+`launcher/` ->
+`scripts/`; `farm_core`/`farm_submit`/`farm_notify`/`reencode_worker` -> modules
+`core`/`submit`/`notify`/`worker` of one `media_transcoder` package (the shared
+queue code stops being split across two dirs); mediabot drops its duplicate
+README.md (SPEC.md is the doc); `services/.gitkeep` goes.
+Env renames: `SPORTS_*` -> `STREAM_RESOLVER_*`, `FARM_*` -> `MEDIA_TRANSCODER_*`,
+`TV_HOST`/`PAYLOAD_PORT` -> `TV_LAUNCHER_*`, mediabot tunables (`SUBS_*`, `QBMON_*`,
+`COST_*`, ...) -> `MEDIA_CONCIERGE_*`, topic-watcher -> `NEWS_NOTIFIER_*`,
+`RAIN_ALERT_*` -> `RAIN_NOTIFIER_*`.
 External paths keep working: the TV URL (`:8099/jellyfin.html`) and the queue dir
-`~/reencode_farm` are unchanged.
+`~/reencode_farm` are unchanged (renaming the queue dir would need a coordinated
+two-host move for no user-visible gain).
 
 ### Migration (one service per branch, each verified live before the next)
-0. `install.sh` learns renames: a `deploy/renames` map (old unit → new) so it
+0. `install.sh` learns renames: a `deploy/renames` map (old unit -> new) so it
    stops/disables/removes the old unit when installing the new one; per-host
-   `.env` key renames done by a small script (keys only, values never printed).
-1. reencode-farm — vega worker first, then blacklodge submit/notify; synthetic job.
-2. sports-api — package + scripts/; vega first (blacklodge delegates to it).
-3. tv-app — payload server + watcher; `curl :8099/jellyfin.html`, on-TV check.
-4. news-alert — listener + timer; test a chat command and a run.
-5. media-bot — last (most live); bot reconnects, one agent turn.
-6. Docs + cleanup: root SPEC/README/CLAUDE.md, `hosts.example.yml`; retire
+   `.env` key renames via a small script (keys only, values never printed).
+1. media-transcoder: GPU-host worker first, then submit/notify; synthetic job.
+2. stream-resolver: package + scripts/; vega first (blacklodge delegates to it).
+3. tv-launcher: payload server + watcher; `curl :8099/jellyfin.html`, on-TV check.
+4. news-notifier: listener + timer; test a chat command and a run.
+5. rain-notifier: timer; manual run.
+6. media-concierge: last (most live); bot reconnects, one agent turn.
+7. Docs + cleanup: root SPEC/README/CLAUDE.md, `hosts.example.yml`, memory; retire
    `~/services/{rain-alert,topic-watcher,mediabot}`, `~/vizio_watch` (copy
-   `jf_url.txt` out first — it was the only backup on 2026-10-26) and vega's
+   `jf_url.txt` out first: it was the only backup on 2026-10-26) and vega's
    `~/vizio_recon/scratchpad`.
 
 ## Open / to decide later
