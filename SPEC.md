@@ -142,6 +142,77 @@ Conventions these four break from the rest (on purpose):
 Per-service SPEC.md has the details; `tv-watch/SPEC.md` carries the client-deploy
 runbook (edit payload → push → pull → cache-bust → `tv_pwn.js launch`).
 
+## Restructure plan (2026-10-26, proposed — awaiting approval)
+Goal (user): keep `services/` **flat**, with one clear, consistent naming scheme.
+
+### Naming scheme
+Every service is `<subject>-<role>`, kebab-case. Role comes from a closed list:
+
+| role    | meaning                                               |
+|---------|-------------------------------------------------------|
+| `alert` | scheduled check that DMs the owner                    |
+| `bot`   | interactive chat bot                                  |
+| `api`   | HTTP service other parts call                         |
+| `app`   | client UI served to a device (+ its launcher)         |
+| `farm`  | job queue whose workers run across hosts              |
+
+That one name is derived everywhere, no exceptions:
+- dir `services/<name>/`, distribution `<name>`, package `<name_snake>`
+- systemd: `<name>.service`, or `<name>-<cmd>.{service,timer,path}` when a service
+  has several units. **Every unit starts with its service name.**
+- env: service-specific settings are `<NAME_SNAKE_UPPER>_*`. Third-party creds/URLs
+  keep their vendor names (`JELLYFIN_URL`, `QBIT_USER`, `DISCORD_BOT_TOKEN`, …).
+- runtime state in `services/<name>/state/` (gitignored).
+
+Every service has the same layout:
+```
+services/<name>/
+  pyproject.toml        workspace member; [project.scripts] <name>[-<cmd>]
+  src/<name_snake>/     __main__.py + modules
+  systemd/              <name>[-<cmd>].{service,timer,path}
+  tests/                unittest/pytest
+  scripts/              dev/ops tools (bench, checks, one-offs)
+  static/               files served to a device (tv-app only)
+  .env.example  SPEC.md
+```
+All services become uv workspace members: the root `exclude` list, sports-api's
+`~/.venvs/sports`, `requirements.txt` and `bootstrap.sh` go away (install.sh runs
+`playwright install chromium` for sports-api). Must be validated on both hosts.
+
+### Renames
+| now                                 | new             | units                                                                 |
+|-------------------------------------|-----------------|-----------------------------------------------------------------------|
+| rain-alert                          | rain-alert      | rain-alert.{service,timer} (unchanged)                                 |
+| topic-watcher                       | news-alert      | news-alert.{service,timer}, news-alert-listen.service                  |
+| mediabot                            | media-bot       | media-bot.service, media-bot-trash.{service,timer}                     |
+| sports-api                          | sports-api      | sports-api.service (unchanged; tools → scripts/)                      |
+| tv-watch                            | tv-app          | tv-app.service; payloads/ → static/; bin/+launcher/ → scripts/         |
+| reencode-worker + reencode-submit   | reencode-farm   | reencode-farm-worker (vega), -submit.{service,timer}, -notify.{service,path} |
+
+Also: `tv_pwn.js` → `tv_launch.js`; `farm_core`/`farm_submit`/`farm_notify`/
+`reencode_worker` → modules `core`/`submit`/`notify`/`worker` of one `reencode_farm`
+package (the shared queue code stops being split across two dirs); mediabot drops
+its duplicate README.md (SPEC.md is the doc); `services/.gitkeep` goes.
+Env renames: `FARM_*` → `REENCODE_FARM_*`, `SPORTS_{MAX_CTX,DELEGATE,SOURCE_URL}` →
+`SPORTS_API_*`, `TV_HOST`/`PAYLOAD_PORT` → `TV_APP_*`, mediabot tunables
+(`SUBS_*`, `QBMON_*`, `COST_*`, …) → `MEDIA_BOT_*`, topic-watcher → `NEWS_ALERT_*`.
+External paths keep working: the TV URL (`:8099/jellyfin.html`) and the queue dir
+`~/reencode_farm` are unchanged.
+
+### Migration (one service per branch, each verified live before the next)
+0. `install.sh` learns renames: a `deploy/renames` map (old unit → new) so it
+   stops/disables/removes the old unit when installing the new one; per-host
+   `.env` key renames done by a small script (keys only, values never printed).
+1. reencode-farm — vega worker first, then blacklodge submit/notify; synthetic job.
+2. sports-api — package + scripts/; vega first (blacklodge delegates to it).
+3. tv-app — payload server + watcher; `curl :8099/jellyfin.html`, on-TV check.
+4. news-alert — listener + timer; test a chat command and a run.
+5. media-bot — last (most live); bot reconnects, one agent turn.
+6. Docs + cleanup: root SPEC/README/CLAUDE.md, `hosts.example.yml`; retire
+   `~/services/{rain-alert,topic-watcher,mediabot}`, `~/vizio_watch` (copy
+   `jf_url.txt` out first — it was the only backup on 2026-10-26) and vega's
+   `~/vizio_recon/scratchpad`.
+
 ## Open / to decide later
 - **Rotate the Jellyfin API key** — it sat hardcoded in the pre-import reencode
   scripts (plaintext on two hosts); treat as exposed now that history is clean.
