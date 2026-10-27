@@ -6,7 +6,7 @@
 # even loads them. Candidates are validated (referer probe) before the
 # TV ever sees them, then served through the referer-spoofing proxy.
 #
-#   GET /schedule                 today's games from SOURCE_SITE
+#   GET /schedule                 today's games from the source site
 #   GET /event?path=/nba/123     raw stream anchors for an event
 #   GET /prepare?path=/nba/123   progressive resolve+validate of ALL sources
 #        [&since=<version>&wait=<s>] long-poll: returns once the job's version
@@ -33,7 +33,9 @@ PORT = int(os.environ.get("SPORTS_API_PORT", "8098"))
 # TV, so it must be this host's address on the TV's network. Set per host in the
 # gitignored .env (see .env.example); the loopback default is just a safe fallback.
 PXY_HOST = os.environ.get("SPORTS_API_HOST", "127.0.0.1")
-BASE = "https://SOURCE_SITE"
+# Schedule/event site. Deliberately kept out of the repo: set it in the
+# gitignored .env (see .env.example).
+BASE = os.environ.get("SPORTS_SOURCE_URL", "").rstrip("/")
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 AD_HOSTS = ("histats.com", "google-analytics", "googletagmanager",
@@ -322,7 +324,7 @@ def cand_json(stream_url, headers, found_on):
             "direct": stream_url}
 
 
-# ---------------- SourceSite scraping ----------------
+# ---------------- source-site scraping ----------------
 
 def schedule():
     ts, cached = _cache["schedule"]
@@ -356,7 +358,7 @@ def event(path):
     text = body.decode("utf-8", "replace")
     t = re.search(r"<title>([^<]*)</title>", text)
     title = t.group(1).strip() if t else path
-    title = title.split(" - Watch ")[0].split(" | SourceSite")[0]
+    title = re.split(r" - Watch | \| ", title)[0]  # drop the site-name suffix
     title = title.replace(" Live Stream Free", "").strip()
     sources = []
     seen = set()
@@ -773,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not BASE:
+        raise SystemExit("SPORTS_SOURCE_URL is not set (see .env.example)")
     threading.Thread(target=lambda: schedule(), daemon=True).start()
     start_browser()
     log("sports_api listening on :%d (browser up, schedule warming)" % PORT)

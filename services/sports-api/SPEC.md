@@ -4,7 +4,8 @@ Clean-stream extractor + HLS proxy behind the TV's "Sports" tile. Runs on
 blacklodge (`:8100`, primary) and vega (`:8098`, fallback).
 
 ## How it works
-- `GET /schedule` — today's events scraped from SOURCE_SITE. Event paths are
+- `GET /schedule` — today's events scraped from the source site
+  (`SPORTS_SOURCE_URL`, kept only in the gitignored `.env`, never in the repo). Event paths are
   `/<sport>/<id>` where the id may be a slug (`/nfl/redzone`), not just digits.
 - `GET /event?path=/nba/123` — the raw stream-source anchors for an event.
 - `GET /prepare?path=…[&since=<version>&jid=<job>&wait=<s>]` — the one the TV
