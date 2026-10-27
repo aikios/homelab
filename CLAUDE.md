@@ -37,8 +37,8 @@ at `github.com/aikios/homelab`.** Everything below is the state to resume from.
 
 What exists and runs live on the server (all verified):
 - **services/** — rain-notifier (08:00 timer), news-notifier (2s `--listen` resident
-  + 09:00 news timer), mediabot (resident Discord Tool-Runner bot). All run from
-  this checkout via systemd; mediabot's agent turn was smoke-tested on anthropic
+  + 09:00 news timer), media-concierge (resident Discord Tool-Runner bot). All run from
+  this checkout via systemd; media-concierge's agent turn was smoke-tested on anthropic
   1.13.0.
 - **libs/core** — config / ha / notify (Discord REST primitives) / ui (the shared
   `Messenger` protocol + `Discord` REST client the notifiers program against).
@@ -61,13 +61,13 @@ Key mechanics to remember:
   gh token has `repo` scope.
 
 Open follow-ups (none blocking; also in SPEC.md "Open / to decide later"):
-- mediabot carries **pre-existing ruff (66) / ty (16)** debt — not from the
+- media-concierge carries **pre-existing ruff (66) / ty (16)** debt — not from the
   migration; clean up as its own pass (touches live code).
 - Two secret-scanning sub-toggles (non-provider patterns, validity checks) didn't
   flip via the old gh's API — enable in GitHub Settings → Code security if wanted.
 - **Retire the old `~/services/{rain-alert,topic-watcher,mediabot}` dirs** (now
   orphaned fallbacks) once fully confident; the `~/services/<stack>` compose dirs
   remain the authoritative/running copies for the containers.
-- Optional: a `Messenger` adapter so mediabot's discord.py bot presents the same
+- Optional: a `Messenger` adapter so media-concierge's discord.py bot presents the same
   outbound interface (deferred — its Gateway event loop isn't a `Messenger`).
 - Optional: LICENSE + repo topics for the public repo.

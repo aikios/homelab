@@ -1,5 +1,5 @@
 [Unit]
-Description=Empty the media trash (bot/arr deletes go to trash, not erased)
+Description=media-concierge trash — empty the media trash (bot/arr deletes go to trash, not erased)
 
 [Service]
 Type=oneshot

@@ -1,4 +1,6 @@
-# mediabot — SPEC
+# media-concierge — SPEC
+
+(Formerly `mediabot`; renamed 2026-10-26.)
 
 A Discord-driven agent that manages the Jellyfin media library on the host
 with minimal user input.
@@ -38,9 +40,9 @@ history and can restart if it ever appears.
 ```
 Discord  ──►  bot.py (discord.py)  ──►  agent.py (anthropic SDK, tool_runner)
                 owner-gate                system prompt + @beta_tool registry
-                per-channel history        model = $MODEL (default claude-opus-5)
+                per-channel history        model = $MEDIA_CONCIERGE_MODEL (default claude-opus-5)
                                               │
-   @beta_tool functions (src/mediabot/tools.py) ──► thin API clients (src/mediabot/clients/*)
+   @beta_tool functions (src/media_concierge/tools.py) ──► thin API clients (src/media_concierge/clients/*)
      find / get / queue_status / library_report
      disk_report / reclaim_space
      import_file (guessit + Radarr/Sonarr lookup) + junk cleanup
@@ -67,13 +69,13 @@ Discord  ──►  bot.py (discord.py)  ──►  agent.py (anthropic SDK, too
 | Anthropic    | `ANTHROPIC_API_KEY`                    | reused from openclaw `.env` |
 | Discord      | `DISCORD_BOT_TOKEN` (app 1529…)        | reused from openclaw `.env` |
 | Radarr/Sonarr/Prowlarr | `X-Api-Key`                  | extracted from each `config.xml` → `.arr-keys.env` |
-| qBittorrent  | `admin` + generated password           | mediabot sets it, updates arr clients |
+| qBittorrent  | `admin` + generated password           | media-concierge sets it, updates arr clients |
 | Jellyfin     | `X-Emby-Token` API key                 | **owner provides** (Dashboard → API Keys) |
 | TMDB/TVDB    | none — via Radarr/Sonarr `/…/lookup`   | proxied |
 | Subtitles    | subliminal; OpenSubtitles key optional | `.env` `OPENSUBTITLES_*` if provided |
 
 Shared creds live in the host-level `~/homelab/secrets/shared.env` (git-ignored);
-mediabot's own service keys in its git-ignored `.env`:
+media-concierge's own service keys in its git-ignored `.env`:
 ```
 ANTHROPIC_API_KEY=…
 DISCORD_BOT_TOKEN=…
@@ -87,13 +89,13 @@ QBIT_URL=http://localhost:8080
 QBIT_USER=admin
 QBIT_PASS=…
 OPENSUBTITLES_API_KEY=        # optional
-FFMPEG=/usr/lib/jellyfin-ffmpeg/ffmpeg
-FFPROBE=/usr/lib/jellyfin-ffmpeg/ffprobe
-MEDIA_MOVIES=/media/JellyFin-Movies
-MEDIA_SHOWS=/media/JellyFin-Shows
-MEDIA_DOWNLOADS=/media/downloads
-MIN_FREE_GB=8                 # reclaim target floor
-MODEL=claude-sonnet-5
+MEDIA_CONCIERGE_FFMPEG=/usr/lib/jellyfin-ffmpeg/ffmpeg
+MEDIA_CONCIERGE_FFPROBE=/usr/lib/jellyfin-ffmpeg/ffprobe
+MEDIA_CONCIERGE_MOVIES_DIR=/media/JellyFin-Movies
+MEDIA_CONCIERGE_SHOWS_DIR=/media/JellyFin-Shows
+MEDIA_CONCIERGE_DOWNLOADS_DIR=/media/downloads
+MEDIA_CONCIERGE_MIN_FREE_GB=8                 # reclaim target floor
+MEDIA_CONCIERGE_MODEL=claude-sonnet-5
 ```
 
 ## Defaults (the "minimal input" contract)
@@ -102,7 +104,7 @@ If the owner doesn't specify, assume:
 - quality **1080p** (Radarr/Sonarr profile `HD-1080p`)
 - audio **English**
 - subtitles **English**, **soft** (muxed track, not burned)
-- after a download that pushes free space < `MIN_FREE_GB`, the agent first proposes
+- after a download that pushes free space < `MEDIA_CONCIERGE_MIN_FREE_GB`, the agent first proposes
   a reclaim (watched → oldest-added) and asks once; on repeat low-space it just does it.
 
 Burn-in only when the owner says "burn"/"hardcode"/"baked in". Warn it's slow
@@ -141,7 +143,7 @@ Prowlarr's indexers (incl. 1337x) return them. When the owner finds such a relea
 himself, `add_magnet` bypasses the arrs entirely:
 
 1. The magnet (or `.torrent` URL) is added to qBittorrent under category `manual`
-   (save path `MEDIA_DOWNLOADS`), tagged `mb-<rand>` so the poller can track it by
+   (save path `MEDIA_CONCIERGE_DOWNLOADS_DIR`), tagged `mb-<rand>` so the poller can track it by
    tag (robust against name/metadata resolution lag); infohash is a fallback match.
 2. A `magnet` job is registered (`media_kind`, `title_hint`, subs prefs in detail).
 3. The poller reports progress, then on completion runs
@@ -165,12 +167,12 @@ UI. It DMs the owner on four edges, keyed by infohash in `state/qbmon.json`
 records existing torrents silently — no `added` burst):
 
 - **added** — a new infohash appears.
-- **progress** — a summary of active downloads every `QBMON_SUMMARY_MIN` min
-  (default 5). A download gaining < `QBMON_FAST_PCT` (1%) in a window is a
-  trickle: it's held out of the summary until it accumulates `QBMON_SLOW_STEP_PCT`
+- **progress** — a summary of active downloads every `MEDIA_CONCIERGE_QBMON_SUMMARY_MIN` min
+  (default 5). A download gaining < `MEDIA_CONCIERGE_QBMON_FAST_PCT` (1%) in a window is a
+  trickle: it's held out of the summary until it accumulates `MEDIA_CONCIERGE_QBMON_SLOW_STEP_PCT`
   (5%) since last shown, so a near-dead torrent alerts per 5% rather than every
   5 min at ~0%.
-- **stalled** — no progress for `QBMON_STALL_MIN` min (default 10); warns once
+- **stalled** — no progress for `MEDIA_CONCIERGE_QBMON_STALL_MIN` min (default 10); warns once
   per stall episode, re-arms when it resumes.
 - **completed** — reaches 100%; suppressed when an open bot job already tracks it
   (that job posts the richer `imported into library` message instead).
@@ -206,7 +208,7 @@ Mutate (all logged to `logs/actions.jsonl`):
   (`.DS_Store`, `._*`, `*sample*`) → jellyfin scan.
 - `attach_subs(item, lang=en, mode=soft|burn)` — fetch if absent (subliminal), then
   mux (instant) or burn (ffmpeg bg job).
-- `reclaim_space(target_gb=MIN_FREE_GB, dry_run=True)` — rank watched → oldest-added;
+- `reclaim_space(target_gb=MEDIA_CONCIERGE_MIN_FREE_GB, dry_run=True)` — rank watched → oldest-added;
   delete via Radarr/Sonarr (trashes files) + trash-cli for orphans.
 - `jellyfin_scan(path=None)` — targeted or full library refresh.
 - `remove(title, kind, delete_files=True)` — unmonitor + delete via arr.
@@ -228,11 +230,11 @@ Mutate (all logged to `logs/actions.jsonl`):
 5. **Discord** (`bot.py`): owner-gate, per-channel session, long-job poller.
 6. **`get` / `import_file` / `subtitles` / `reclaim`** — the mutating core, each
    validated on one real title.
-7. **systemd** `mediabot.service`, enable, live test end-to-end from Discord.
+7. **systemd** `media_concierge.service`, enable, live test end-to-end from Discord.
 
 ## Testing
 
-Each `clients/*.py` and `tools/*.py` runs standalone (`uv run python -m mediabot.clients.radarr`)
+Each `clients/*.py` and `tools/*.py` runs standalone (`uv run python -m media_concierge.clients.radarr`)
 and prints a real call result. `scripts/smoke.sh` runs them all. No mutation in smoke
 tests except against a throwaway title the script also cleans up.
 
@@ -244,3 +246,50 @@ tests except against a throwaway title the script also cleans up.
   Podnapisi/TVsubtitles/Gestdown; quality varies. Ask owner for a free OS key.
 - 1337x via Prowlarr can rate-limit / go down; keep 2–3 indexers so search degrades
   gracefully.
+
+## Run & usage (merged from the former README)
+
+Discord agent that runs the Jellyfin media stack on the server. See `SPEC.md`.
+
+```
+Discord ──▶ bot.py ──▶ agent.py (anthropic Tool Runner, model=$MEDIA_CONCIERGE_MODEL)
+                          └─ tools.py ─▶ Radarr / Sonarr / Prowlarr / qBittorrent / Jellyfin
+```
+
+### Layout
+- `src/media_concierge/clients/` — thin REST wrappers, each runnable: `uv run python -m media_concierge.clients.arr`
+- `src/media_concierge/tools.py` — the `@beta_tool` functions the model calls
+- `src/media_concierge/agent.py` — system prompt + `run_turn()`
+- `src/media_concierge/bot.py` — Discord front-end + background job poller
+- `scripts/setup_infra.py` — one-time: indexers, arr renaming, qbit categories
+- `scripts/setup_flare_indexers.py` — adds FlareSolverr proxy + 1337x/EZTV
+- `scripts/smoke.sh` — read-only end-to-end check
+
+### Run
+```
+cd ~/homelab                                 # uv workspace root (one lockfile)
+uv sync --all-packages
+# shared creds (ANTHROPIC_API_KEY, DISCORD_BOT_TOKEN, OWNER_DISCORD_ID) go in
+# ~/homelab/secrets/shared.env; media-concierge's own keys here:
+cp services/media-concierge/.env.example services/media-concierge/.env   # fill JELLYFIN_API_KEY, QBIT_PASS, …
+uv run python scripts/setup_infra.py
+bash scripts/smoke.sh
+sudo cp systemd/media_concierge.service /etc/systemd/system/
+sudo systemctl enable --now media-concierge
+journalctl -u media-concierge -f
+```
+
+### Usage (Discord)
+DM the bot, or @mention it in a channel. Only `OWNER_DISCORD_ID` is obeyed.
+- "what's in the library" / "what's downloading" / "how much space is left"
+- "get me Dune Part Two in 1080p" → it shows release candidates and waits for you
+  to pick one before it downloads
+- "grab #2" / "yes" → downloads, imports, adds subs, rescans, reports back
+- "burn spanish subs into <file>" → slow background re-encode
+- "clean up /media/downloads/<thing>" → identifies + files into the library
+- "free up 20 GB" → shows a plan (watched → oldest); "do it" to execute
+
+### Services touched
+qBittorrent auth: subnet-whitelisted (`172.16.0.0/12` + localhost) so host + arr
+bypass login. FlareSolverr at :8191 for Cloudflare-gated indexers. Radarr/Sonarr
+renaming is ON so imports land as `Title (Year)/…`.

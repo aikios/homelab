@@ -1,7 +1,7 @@
 """Identify a loose file and file it into the Jellyfin library layout.
 
 Layout Jellyfin/arr expect:
-  Movies:  <MEDIA_MOVIES>/<Title> (<Year>)/<Title> (<Year>).<ext>
+  Movies:  <MEDIA_CONCIERGE_MOVIES_DIR>/<Title> (<Year>)/<Title> (<Year>).<ext>
   Shows:   <MEDIA_SHOWS>/<Title>/Season <NN>/<Title> - S<NN>E<NN>.<ext>
 Metadata (cast, plot, art) is scraped by Jellyfin from the folder name + year on scan,
 so getting the name/year right is the whole job.

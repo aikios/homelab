@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
-_channel: ContextVar[int] = ContextVar("mediabot_channel", default=0)
+_channel: ContextVar[int] = ContextVar("media_concierge_channel", default=0)
 
 
 def set_channel(cid: int) -> None:

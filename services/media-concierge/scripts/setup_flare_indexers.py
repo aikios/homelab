@@ -11,7 +11,7 @@ import sys
 import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-from mediabot.clients.arr import Prowlarr  # noqa: E402
+from media_concierge.clients.arr import Prowlarr  # noqa: E402
 
 FLARE_URL = "http://flaresolverr:8191"
 TAG = "flare"

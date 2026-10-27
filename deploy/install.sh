@@ -31,12 +31,18 @@ DEPLOY_USER="${DEPLOY_USER:-$(id -un)}"
 # member (and its console script) into it, so deployed services coexist instead
 # of pruning each other — the root project doesn't depend on them. Units then run
 # with `uv run --no-sync`, so a fire never re-syncs (and never evicts a sibling).
+# Renamed service? Retire the old units and carry over untracked per-host files
+# (.env, state/) from the old dir first. No-op when already migrated. Runs before
+# the sync, with the existing venv's python rather than uv: a leftover old dir
+# matches the services/* member glob without a pyproject.toml, which makes every
+# uv command fail. A fresh host has no venv yet, and nothing to migrate either.
+if [ -x "$REPO/.venv/bin/python" ]; then
+  "$REPO/.venv/bin/python" "$REPO/deploy/migrate.py" "$svc"
+fi
+
 echo "==> syncing workspace env (one lockfile, all members)"
 "$UV" sync --project "$REPO" --all-packages
 
-# Renamed service? Retire the old units and carry over untracked per-host files
-# (.env, state/) from the old dir first. No-op when already migrated.
-"$UV" run --project "$REPO" --no-sync python "$REPO/deploy/migrate.py" "$svc"
 
 # Per-host setup beyond the venv (e.g. stream-resolver fetching Chromium).
 if [ -x "$dir/scripts/setup.sh" ]; then

@@ -4,7 +4,7 @@ Two transports talk to the same owner over the same bot:
 
 * **REST-over-curl** (:class:`Discord`), stdlib-only — used by the notifier
   services (rain-notifier, news-notifier). Lightweight: send, plus poll for inbound.
-* a **discord.py Gateway bot** (mediabot) — event-driven, with attachments,
+* a **discord.py Gateway bot** (media-concierge) — event-driven, with attachments,
   typing indicators, etc.
 
 :class:`Messenger` is the small *outbound* contract both share: deliver a line to
@@ -13,7 +13,7 @@ the transport is swappable. Inbound differs per transport — the REST client po
 (:meth:`Discord.fetch`); the Gateway bot receives events — so inbound is not part
 of the shared contract.
 
-mediabot's discord.py client is intentionally *not* modified to go through this:
+media-concierge's discord.py client is intentionally *not* modified to go through this:
 its inbound event loop isn't expressible as ``Messenger``, and rewriting the live
 bot's delivery earns little. It can present ``Messenger`` via a small adapter in
 its own package if that's ever wanted — ``Messenger`` is ``runtime_checkable`` and

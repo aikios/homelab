@@ -1,6 +1,6 @@
 """@beta_tool functions exposed to the agent. Thin glue over the clients.
 
-Every mutating call appends a line to logs/actions.jsonl. Read tools don't.
+Every mutating call appends a line to state/logs/actions.jsonl. Read tools don't.
 All tools return strings (human-readable, sometimes compact JSON) so the model can
 relay them straight to Discord.
 """

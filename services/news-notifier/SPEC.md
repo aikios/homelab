@@ -51,7 +51,7 @@ Runtime state (per-topic seen-history, the DM cursor, `watch.log`) lives under
 so the listener doesn't re-process old DMs, and the per-topic `*.json` so already-
 seen items don't re-notify.
 
-## Relationship to mediabot
-Independent process and code — it doesn't import or call mediabot, only reads two
+## Relationship to media-concierge
+Independent process and code — it doesn't import or call media-concierge, only reads two
 env-var values and one DM channel at runtime. If the bot token is rotated, this
 picks up the new one on the next run.

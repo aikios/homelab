@@ -34,7 +34,7 @@ homelab/
 ├── services/               # owner-built Python daemons
 │   ├── rain-notifier/      #   workspace members: src/, systemd/*, SPEC.md (was rain-alert)
 │   ├── news-notifier/      #   (was topic-watcher)
-│   ├── mediabot/
+│   ├── media-concierge/    #   (was mediabot)
 │   ├── media-transcoder/   #   TV stack: workspace member (merged reencode-worker/-submit)
 │   ├── stream-resolver/    #   TV stack: workspace member (was sports-api)
 │   └── tv-launcher/        #   TV stack: workspace member (was tv-watch)
@@ -48,7 +48,7 @@ homelab/
 
 ## Current server state (inventoried 2026-10-11, Ubuntu 22.04)
 Owner Python services (git + uv + systemd):
-- **mediabot** — Discord bot (anthropic Tool Runner), `mediabot.service` (resident).
+- **media-concierge** — Discord bot (anthropic Tool Runner), `media-concierge.service` (resident).
 - **news-notifier** (was topic-watcher) — `news-notifier-listen.service` (2s DM loop) +
   `news-notifier.timer` (daily Google News) + oneshot `news-notifier.service`.
 - **rain-notifier** (was rain-alert) — `rain-notifier.timer` (08:00) + oneshot `rain-notifier.service`.
@@ -103,7 +103,7 @@ Passwordless `sudo -n`.
   all services share (`send_dm` / `send`); `core.ui.Discord` is the REST-over-curl
   backend (stdlib-only, lazy-cached DM channel) that the notifiers program against.
   Inbound stays transport-specific (REST polls via `Discord.fetch`; a Gateway bot
-  gets events), so it's out of the contract. mediabot's discord.py Gateway bot is
+  gets events), so it's out of the contract. media-concierge's discord.py Gateway bot is
   the *other* backend of the same conceptual layer — intentionally not rewritten
   (its event loop isn't expressible as `Messenger`); it can present `Messenger` via
   a small adapter in its own package if ever wanted.
@@ -221,7 +221,7 @@ two-host move for no user-visible gain).
 - **Rotate the Jellyfin API key** — it sat hardcoded in the pre-import reencode
   scripts (plaintext on two hosts); treat as exposed now that history is clean.
 - **sports-api** carries pre-existing ruff/ty debt (defensive-scraper blind
-  excepts, %-format, a stdlib handler override) — left as-is like mediabot; its
+  excepts, %-format, a stdlib handler override) — left as-is like media-concierge; its
   own cleanup pass.
 - **Retire the pre-import runtime dirs** (`~/vizio_watch` on blacklodge, vega's
   `~/vizio_recon/scratchpad`) once fully confident — kept as fallbacks for now.
@@ -229,10 +229,10 @@ two-host move for no user-visible gain).
   next on (verified server-side; it auto-refreshes via its cache-buster).
 - vega now has a full workspace venv from `install.sh`'s `uv sync --all-packages`
   even though it only runs stdlib services — harmless, revisit if it bloats.
-- Clean up mediabot's pre-existing ruff (66) / ty (16) findings — noqa-code drift
+- Clean up media-concierge's pre-existing ruff (66) / ty (16) findings — noqa-code drift
   vs current ruff + intentional patterns (SLF001, defensive BLE001/S110). Separate
   from the migration; touches live code.
-- Smoke-test a real mediabot agent turn (owner DM) after the anthropic 1.4→1.13
+- Smoke-test a real media-concierge agent turn (owner DM) after the anthropic 1.4→1.13
   bump — import succeeds, but that doesn't exercise `tool_runner`.
 - Secret delivery beyond `.env` per host (sops/age?) if hosts multiply.
 - Whether to add Dockerfiles for the self-contained Python services (rain-alert,

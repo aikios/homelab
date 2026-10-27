@@ -5,13 +5,13 @@ cd "$(dirname "$0")/.."
 
 run() { echo; echo "### $*"; uv run --no-dev python -m "$@" 2>&1 | sed 's/^/  /'; }
 
-run mediabot.clients.arr
-run mediabot.clients.qbit
-run mediabot.clients.jellyfin
+run media_concierge.clients.arr
+run media_concierge.clients.qbit
+run media_concierge.clients.jellyfin
 
 echo; echo "### tools: library_report / disk_report / queue_status / find"
 uv run --no-dev python - <<'PY' 2>&1 | sed 's/^/  /'
-from mediabot import tools
+from media_concierge import tools
 print("--- library_report ---");  print(tools.library_report("all", "summary"))
 print("--- disk_report ---");     print(tools.disk_report())
 print("--- queue_status ---");    print(tools.queue_status())

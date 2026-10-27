@@ -13,8 +13,8 @@ resolution-markers = [
 members = [
     "homelab",
     "homelab-core",
+    "media-concierge",
     "media-transcoder",
-    "mediabot",
     "news-notifier",
     "rain-notifier",
     "stream-resolver",
@@ -1284,20 +1284,9 @@ wheels = [
 ]
 
 [[package]]
-name = "media-transcoder"
+name = "media-concierge"
 version = "0.1.0"
-source = { editable = "services/media-transcoder" }
-dependencies = [
-    { name = "homelab-core" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "homelab-core", editable = "libs/core" }]
-
-[[package]]
-name = "mediabot"
-version = "0.1.0"
-source = { editable = "services/mediabot" }
+source = { editable = "services/media-concierge" }
 dependencies = [
     { name = "anthropic" },
     { name = "babelfish" },
@@ -1322,6 +1311,17 @@ requires-dist = [
     { name = "subliminal", specifier = ">=2.2" },
     { name = "trash-cli", specifier = ">=0.24" },
 ]
+
+[[package]]
+name = "media-transcoder"
+version = "0.1.0"
+source = { editable = "services/media-transcoder" }
+dependencies = [
+    { name = "homelab-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "homelab-core", editable = "libs/core" }]
 
 [[package]]
 name = "multidict"

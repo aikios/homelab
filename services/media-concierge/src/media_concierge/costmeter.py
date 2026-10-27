@@ -3,7 +3,7 @@
 Anthropic's Messages API key can't read the account balance, so we estimate: sum
 `usage` from every request the tool runner makes, price it, and subtract from a
 running "credit remaining" figure the owner sets ("I topped up $40" -> add_credit).
-Warns on Discord when it drops below COST_WARN_USD.
+Warns on Discord when it drops below MEDIA_CONCIERGE_COST_WARN_USD.
 """
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def check_warn() -> str | None:
     spent = d.get("spent_usd", 0.0)
     if rem <= 0:
         return (f"🛑 API credit estimate is **${rem:.2f}** (spent ~${spent:.2f}). "
-                f"mediabot calls will start failing. Top up: "
+                f"media-concierge calls will start failing. Top up: "
                 f"<https://console.anthropic.com/settings/billing>")
     return (f"⚠️ ~**${rem:.2f}** API credit left (spent ~${spent:.2f} over "
             f"{d.get('turns',0)} turns). Re-up soon: "

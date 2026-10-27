@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Idempotent infra prep for mediabot. Run once (safe to re-run).
+"""Idempotent infra prep for media_concierge. Run once (safe to re-run).
 
 - add public indexers to Prowlarr (1337x, YTS, EZTV, TorrentGalaxy) if missing
 - turn ON Radarr/Sonarr file renaming + Jellyfin-friendly folder formats
@@ -12,8 +12,8 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
 
-from mediabot.clients.arr import Prowlarr, Radarr, Sonarr  # noqa: E402
-from mediabot.clients.qbit import Qbit  # noqa: E402
+from media_concierge.clients.arr import Prowlarr, Radarr, Sonarr  # noqa: E402
+from media_concierge.clients.qbit import Qbit  # noqa: E402
 
 WANT_INDEXERS = ["1337x", "YTS", "EZTV", "TorrentGalaxy"]
 

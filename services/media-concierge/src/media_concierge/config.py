@@ -17,7 +17,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[2]  # services/mediabot
+ROOT = Path(__file__).resolve().parents[2]  # services/media-concierge
 SHARED_ENV = Path(
     os.environ.get("HOMELAB_SHARED_ENV", "~/homelab/secrets/shared.env")
 ).expanduser()
@@ -92,15 +92,15 @@ class Config:
 def load() -> Config:
     root = ROOT
     state_dir = root / "state"
-    log_dir = root / "logs"
+    log_dir = state_dir / "logs"
     state_dir.mkdir(exist_ok=True)
     log_dir.mkdir(exist_ok=True)
     return Config(
         anthropic_api_key=_req("ANTHROPIC_API_KEY"),
         discord_bot_token=_get("DISCORD_BOT_TOKEN"),
         owner_discord_id=int(_get("OWNER_DISCORD_ID", "0") or "0"),
-        model=_get("MODEL", "claude-opus-5"),
-        max_tokens=int(_get("MAX_TOKENS", "16000")),
+        model=_get("MEDIA_CONCIERGE_MODEL", "claude-opus-5"),
+        max_tokens=int(_get("MEDIA_CONCIERGE_MAX_TOKENS", "16000")),
         radarr_url=_get("RADARR_URL", "http://localhost:7878"),
         radarr_key=_req("radarr_API_KEY"),
         sonarr_url=_get("SONARR_URL", "http://localhost:8989"),
@@ -113,26 +113,26 @@ def load() -> Config:
         jellyfin_url=_get("JELLYFIN_URL", "http://localhost:8096"),
         jellyfin_key=_get("JELLYFIN_API_KEY"),
         opensubtitles_api_key=_get("OPENSUBTITLES_API_KEY", ""),
-        ffmpeg=_get("FFMPEG", "/usr/lib/jellyfin-ffmpeg/ffmpeg"),
-        ffprobe=_get("FFPROBE", "/usr/lib/jellyfin-ffmpeg/ffprobe"),
-        media_movies=_get("MEDIA_MOVIES", "/media/JellyFin-Movies"),
-        media_shows=_get("MEDIA_SHOWS", "/media/JellyFin-Shows"),
-        media_downloads=_get("MEDIA_DOWNLOADS", "/media/downloads"),
-        min_free_gb=int(_get("MIN_FREE_GB", "8")),
+        ffmpeg=_get("MEDIA_CONCIERGE_FFMPEG", "/usr/lib/jellyfin-ffmpeg/ffmpeg"),
+        ffprobe=_get("MEDIA_CONCIERGE_FFPROBE", "/usr/lib/jellyfin-ffmpeg/ffprobe"),
+        media_movies=_get("MEDIA_CONCIERGE_MOVIES_DIR", "/media/JellyFin-Movies"),
+        media_shows=_get("MEDIA_CONCIERGE_SHOWS_DIR", "/media/JellyFin-Shows"),
+        media_downloads=_get("MEDIA_CONCIERGE_DOWNLOADS_DIR", "/media/downloads"),
+        min_free_gb=int(_get("MEDIA_CONCIERGE_MIN_FREE_GB", "8")),
         state_dir=state_dir,
         log_dir=log_dir,
-        cost_credit_start=float(_get("COST_CREDIT_START_USD", "0") or "0"),
-        cost_warn_usd=float(_get("COST_WARN_USD", "3") or "3"),
-        cost_warn_cooldown_h=float(_get("COST_WARN_COOLDOWN_H", "6") or "6"),
-        subs_font=_get("SUBS_FONT", "TeX Gyre Heros"),  # Helvetica-metric clone, bundled
-        subs_size=int(_get("SUBS_SIZE", "54")),
-        subs_primary=_get("SUBS_PRIMARY", "&H0000FFFF"),   # yellow
-        subs_outline=_get("SUBS_OUTLINE", "&H00000000"),   # black
-        subs_italic=_get("SUBS_ITALIC", "1") not in ("0", "false", "False", ""),
-        subs_outline_w=_get("SUBS_OUTLINE_W", "2.6"),
-        subs_margin_v=int(_get("SUBS_MARGIN_V", "40")),
-        subs_autosync=_get("SUBS_AUTOSYNC", "1") not in ("0", "false", "False", ""),
-        debug_sock=_get("MEDIABOT_DEBUG_SOCK", "1") not in ("0", "false", "False", ""),
+        cost_credit_start=float(_get("MEDIA_CONCIERGE_COST_CREDIT_START_USD", "0") or "0"),
+        cost_warn_usd=float(_get("MEDIA_CONCIERGE_COST_WARN_USD", "3") or "3"),
+        cost_warn_cooldown_h=float(_get("MEDIA_CONCIERGE_COST_WARN_COOLDOWN_H", "6") or "6"),
+        subs_font=_get("MEDIA_CONCIERGE_SUBS_FONT", "TeX Gyre Heros"),  # Helvetica-metric clone, bundled
+        subs_size=int(_get("MEDIA_CONCIERGE_SUBS_SIZE", "54")),
+        subs_primary=_get("MEDIA_CONCIERGE_SUBS_PRIMARY", "&H0000FFFF"),   # yellow
+        subs_outline=_get("MEDIA_CONCIERGE_SUBS_OUTLINE", "&H00000000"),   # black
+        subs_italic=_get("MEDIA_CONCIERGE_SUBS_ITALIC", "1") not in ("0", "false", "False", ""),
+        subs_outline_w=_get("MEDIA_CONCIERGE_SUBS_OUTLINE_W", "2.6"),
+        subs_margin_v=int(_get("MEDIA_CONCIERGE_SUBS_MARGIN_V", "40")),
+        subs_autosync=_get("MEDIA_CONCIERGE_SUBS_AUTOSYNC", "1") not in ("0", "false", "False", ""),
+        debug_sock=_get("MEDIA_CONCIERGE_DEBUG_SOCK", "1") not in ("0", "false", "False", ""),
     )
 
 

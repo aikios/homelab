@@ -65,7 +65,7 @@ async def _send(channel: discord.abc.Messageable, text: str) -> None:
 
 @client.event
 async def on_ready() -> None:
-    print(f"mediabot online as {client.user} — owner {CFG.owner_discord_id}")
+    print(f"media-concierge online as {client.user} — owner {CFG.owner_discord_id}")
     client.loop.create_task(_poller())
     if CFG.debug_sock:
         client.loop.create_task(_debug_server())
@@ -511,7 +511,7 @@ def _notify_owner(text: str) -> None:
 # ───────────────────  local debug channel ("DM" without Discord)  ───────────────────
 # A unix socket on the LIVE bot that runs one real agent turn per injected prompt,
 # reusing the exact _attempt path (same tools, cost meter, job poller). Local-only
-# (0600); see debug.py for the client (mediabot-dm). Background notifications from
+# (0600); see debug.py for the client (media-concierge-dm). Background notifications from
 # debug-initiated jobs fall through to the owner's Discord DM via _notify.
 
 class _DebugChannel:

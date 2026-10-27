@@ -1,4 +1,4 @@
-"""Checks + benchmark for subtitle auto-sync (mediabot.subs.sync_timing).
+"""Checks + benchmark for subtitle auto-sync (media_concierge.subs.sync_timing).
 
 Run with no args for fail-safe self-checks (no media needed); these must pass before
 committing. Pass a video + subtitle to benchmark a real sync and see the shift applied.
@@ -15,8 +15,8 @@ import time
 import types
 from pathlib import Path
 
-from mediabot import subs
-from mediabot.config import CFG
+from media_concierge import subs
+from media_concierge.config import CFG
 
 _TS = re.compile(r"(\d\d):(\d\d):(\d\d),(\d\d\d)\s*-->")
 

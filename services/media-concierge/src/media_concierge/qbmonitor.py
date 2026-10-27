@@ -30,14 +30,14 @@ from .config import CFG
 
 _PATH = CFG.state_dir / "qbmon.json"
 
-SUMMARY_SECS = int(os.getenv("QBMON_SUMMARY_MIN", "5")) * 60
-STALL_SECS = int(os.getenv("QBMON_STALL_MIN", "10")) * 60
+SUMMARY_SECS = int(os.getenv("MEDIA_CONCIERGE_QBMON_SUMMARY_MIN", "5")) * 60
+STALL_SECS = int(os.getenv("MEDIA_CONCIERGE_QBMON_STALL_MIN", "10")) * 60
 # A download is reported in a summary when it gains >= FAST_STEP_PCT in the last
 # summary window (~QBMON_SUMMARY_MIN min). A slower one (a trickle like a 1-seed
 # torrent) is held back and reported only once it accumulates SLOW_STEP_PCT since it
 # was last shown — so it alerts per 5% instead of every 5 minutes showing ~0%.
-FAST_STEP_PCT = float(os.getenv("QBMON_FAST_PCT", "1"))
-SLOW_STEP_PCT = float(os.getenv("QBMON_SLOW_STEP_PCT", "5"))
+FAST_STEP_PCT = float(os.getenv("MEDIA_CONCIERGE_QBMON_FAST_PCT", "1"))
+SLOW_STEP_PCT = float(os.getenv("MEDIA_CONCIERGE_QBMON_SLOW_STEP_PCT", "5"))
 
 # qBittorrent states that mean "this torrent is trying to download"
 _DL_STATES = {"downloading", "forcedDL", "metaDL", "stalledDL", "queuedDL",
