@@ -44,3 +44,7 @@ tv-launcher:
   env:
     TV_HOST: TV_LAUNCHER_TV_HOST
     PAYLOAD_PORT: TV_LAUNCHER_PORT
+
+news-notifier:
+  dirs: [topic-watcher]
+  units: [topic-watcher.service, topic-watcher.timer, topic-watcher-listen.service]

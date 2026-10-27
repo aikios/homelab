@@ -33,7 +33,7 @@ homelab/
 │   └── src/homelab_core/   #   config (env/secrets), notify (Discord), ha (location)
 ├── services/               # owner-built Python daemons
 │   ├── rain-alert/         #   workspace members: src/, systemd/*, SPEC.md
-│   ├── topic-watcher/
+│   ├── news-notifier/      #   (was topic-watcher)
 │   ├── mediabot/
 │   ├── media-transcoder/   #   TV stack: workspace member (merged reencode-worker/-submit)
 │   ├── stream-resolver/    #   TV stack: workspace member (was sports-api)
@@ -49,8 +49,8 @@ homelab/
 ## Current server state (inventoried 2026-10-11, Ubuntu 22.04)
 Owner Python services (git + uv + systemd):
 - **mediabot** — Discord bot (anthropic Tool Runner), `mediabot.service` (resident).
-- **topic-watcher** — `topic-watcher-listen.service` (2s DM loop) + `topic-watcher.timer`
-  (daily Google News) + oneshot `topic-watcher.service`.
+- **news-notifier** (was topic-watcher) — `news-notifier-listen.service` (2s DM loop) +
+  `news-notifier.timer` (daily Google News) + oneshot `news-notifier.service`.
 - **rain-alert** — `rain-alert.timer` (08:00) + oneshot `rain-alert.service`.
 
 Third-party (docker-compose): arr-stack (radarr/sonarr/prowlarr/qbittorrent/

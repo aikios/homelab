@@ -3,7 +3,7 @@
 Two transports talk to the same owner over the same bot:
 
 * **REST-over-curl** (:class:`Discord`), stdlib-only — used by the notifier
-  services (rain-alert, topic-watcher). Lightweight: send, plus poll for inbound.
+  services (rain-alert, news-notifier). Lightweight: send, plus poll for inbound.
 * a **discord.py Gateway bot** (mediabot) — event-driven, with attachments,
   typing indicators, etc.
 

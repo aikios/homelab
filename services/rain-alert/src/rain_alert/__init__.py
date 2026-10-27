@@ -1,7 +1,7 @@
 """rain-alert — once each morning, check today's rain chance at home and, if it
 is significant, DM the owner to bring the patio chair inside. Silent otherwise.
 
-Deliberate constraints (shared with topic-watcher):
+Deliberate constraints (shared with news-notifier):
 - No LLM calls. One Open-Meteo forecast request (free, no API key) and a canned
   message.
 - Delivery and home coordinates come from ``homelab_core`` so the Discord bot

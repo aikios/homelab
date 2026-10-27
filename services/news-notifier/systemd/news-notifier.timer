@@ -1,5 +1,5 @@
 [Unit]
-Description=Run topic-watcher's daily news check
+Description=Run news-notifier's daily news check
 
 [Timer]
 OnCalendar=*-*-* 09:00:00

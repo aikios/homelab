@@ -1,4 +1,4 @@
-"""topic-watcher — checks Google News' RSS search for new items matching
+"""news-notifier — checks Google News' RSS search for new items matching
 configured topics and DMs new hits to the owner. Also reads that same DM channel
 for plain-language "watch for X" / "stop watching X" replies and updates the
 watchlist accordingly.
@@ -13,11 +13,11 @@ Design constraints (deliberate):
 - Stdlib only (plus homelab-core, itself stdlib-only).
 
 Two independent entrypoints, run by two independent systemd units:
-1. ``topic-watcher`` (no args) — one-shot: fetch news for every topic, notify on
-   anything new. Run once a day by ``topic-watcher.timer``.
-2. ``topic-watcher --listen`` — long-running: poll the DM every 2s for owner
+1. ``news-notifier`` (no args) — one-shot: fetch news for every topic, notify on
+   anything new. Run once a day by ``news-notifier.timer``.
+2. ``news-notifier --listen`` — long-running: poll the DM every 2s for owner
    commands (add/remove/list) and apply them. Run forever by
-   ``topic-watcher-listen.service`` (Restart=always), so a chat command is picked
+   ``news-notifier-listen.service`` (Restart=always), so a chat command is picked
    up in ~2s instead of waiting for the next daily news-check.
 """
 from __future__ import annotations

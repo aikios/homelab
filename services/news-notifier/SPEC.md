@@ -1,4 +1,4 @@
-# topic-watcher
+# news-notifier
 
 Checks Google News' RSS search once a day for anything new matching a configured
 topic (e.g. "has the new Madoka movie gotten a US release date yet") and DMs the
@@ -17,11 +17,11 @@ managed by replying to that same DM in plain language.
 - **Stdlib only** (plus homelab-core, itself stdlib-only).
 
 ## Two cadences, two units
-- `topic-watcher-listen.service` — resident loop (`--listen`), `Restart=always`.
+- `news-notifier-listen.service` — resident loop (`--listen`), `Restart=always`.
   Polls the owner DM every **2s** for add/remove/list commands and applies them,
   so a chat command lands in ~2s. One process, one DM-channel lookup, a cheap GET
   per poll — plain REST, no Gateway/websocket.
-- `topic-watcher.timer` → `topic-watcher.service` (oneshot) — the daily
+- `news-notifier.timer` → `news-notifier.service` (oneshot) — the daily
   **09:00** news check (`±300s` jitter, `Persistent=true`). Fetches news for every
   topic and DMs anything new.
 
@@ -38,13 +38,13 @@ Topics can also be edited by hand in `topics.json` (`id` doubles as the
 
 ## Run
 ```sh
-uv run --all-packages topic-watcher            # one news check now
-uv run --all-packages topic-watcher --listen   # resident command listener
+uv run --all-packages news-notifier            # one news check now
+uv run --all-packages news-notifier --listen   # resident command listener
 ```
 
 ## Deploy
 ```sh
-deploy/install.sh topic-watcher   # installs units; enables the timer + listener
+deploy/install.sh news-notifier   # installs units; enables the timer + listener
 ```
 Runtime state (per-topic seen-history, the DM cursor, `watch.log`) lives under
 `state/` (gitignored). When migrating hosts, copy `state/_dm_cursor.json` across
