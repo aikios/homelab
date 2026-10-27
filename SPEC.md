@@ -37,7 +37,7 @@ homelab/
 │   ├── mediabot/
 │   ├── media-transcoder/   #   TV stack: workspace member (merged reencode-worker/-submit)
 │   ├── stream-resolver/    #   TV stack: workspace member (was sports-api)
-│   └── tv-watch/           #   TV stack: NOT a workspace member yet (system python3)
+│   └── tv-launcher/        #   TV stack: workspace member (was tv-watch)
 ├── stacks/                 # third-party apps as config-as-code
 │   └── <app>/docker-compose.yml + .env.example
 ├── deploy/
@@ -117,7 +117,7 @@ falling back locally), and the TV keeps working with vega off.
 This was the first **multi-host** import and the repo is now the single source of
 truth for both hosts (each has its own `git` checkout; services run from it).
 
-Flow: the TV loads `tv-watch`'s client (`jellyfin.html`) from `:8099`; the Sports
+Flow: the TV loads `tv-launcher`'s client (`jellyfin.html`) from `:8099`; the Sports
 tile calls `stream-resolver`, which drives headless Chromium to extract clean `.m3u8`
 streams and proxies them with referer-spoofing; media the TV can't direct-play is
 queued on blacklodge and re-encoded to h264 on vega by `media-transcoder`.
@@ -125,19 +125,17 @@ queued on blacklodge and re-encoded to h264 on vega by `media-transcoder`.
 | Service | Host(s) | Unit | Runtime |
 |---|---|---|---|
 | stream-resolver | blacklodge :8100, vega :8098 | `stream-resolver.service` | workspace venv (playwright 1.64 + chromium via `scripts/setup.sh`) |
-| tv-watch | blacklodge | `tv-watch.service` (was an `@reboot` cron) | system python3; serves payloads + watches the TV |
+| tv-launcher | blacklodge | `tv-launcher.service` (watcher) + `tv-launcher-pages.service` (`:8099`) | workspace venv; systemd watchdog replaced the shell babysitter |
 | media-transcoder | blacklodge (submit, notify), vega (worker) | `media-transcoder-{submit,notify,worker}` | workspace venv + ffmpeg (NVENC/VAAPI) on vega |
 
 Conventions the TV stack breaks from the rest (on purpose):
-- tv-watch is **not yet a uv workspace member** (system python3, in
-  `[tool.uv.workspace] exclude`) until its restructure step.
 - **No server address in the tree** — the payloads derive their API base from
   `location.hostname`; hosts/ports/keys come from each service's gitignored `.env`.
-- **Extra gitignored secrets:** `tv-watch/jf_url.txt` (Jellyfin auth params) and
-  `tv-watch/tv_token.json` (TV pairing token); `*.example` templates are committed.
+- **Extra gitignored secrets:** `tv-launcher/jf_url.txt` (Jellyfin auth params) and
+  `tv-launcher/tv_token.json` (TV pairing token); `*.example` templates are committed.
 
-Per-service SPEC.md has the details; `tv-watch/SPEC.md` carries the client-deploy
-runbook (edit payload → push → pull → cache-bust → `tv_pwn.js launch`).
+Per-service SPEC.md has the details; `tv-launcher/SPEC.md` carries the client-deploy
+runbook (edit page → push → pull → cache-bust → `tv_launch.js launch`).
 
 ## Restructure plan (2026-10-26, agreed with the user; not started)
 Goal: keep `services/` **flat**, with one naming scheme where every name reads as

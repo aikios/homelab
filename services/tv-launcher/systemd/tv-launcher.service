@@ -1,0 +1,20 @@
+[Unit]
+Description=tv-launcher — open the TV client when the TV powers on (never over an HDMI input)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/tv-launcher
+# TV_LAUNCHER_TV_HOST / TV_LAUNCHER_PORT live in the gitignored .env.
+EnvironmentFile=%%REPO%%/services/tv-launcher/.env
+ExecStart=%%UV%% run --no-dev --no-sync --project %%REPO%% tv-launcher
+# The watcher pings the watchdog every loop tick; a wedged watcher is killed and
+# restarted. `all` because uv run spawns python as a child, not via exec.
+WatchdogSec=45
+NotifyAccess=all
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

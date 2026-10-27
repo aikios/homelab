@@ -1,0 +1,13 @@
+[project]
+name = "tv-launcher"
+version = "0.1.0"
+description = "Serves the TV's web client pages and opens them on the TV when it powers on"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+tv-launcher = "tv_launcher.watcher:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

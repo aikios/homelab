@@ -13,10 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// TV_IP/TV_HOST and the token file come from the environment / the service dir;
+// TV_IP/TV_LAUNCHER_TV_HOST and the token file come from the environment / the service dir;
 // no real address or token lives in this public tree.
-const TV = process.env.TV_IP || process.env.TV_HOST || '';
-if (!TV) { console.error('set TV_IP (or TV_HOST) to the TV LAN address'); process.exit(1); }
+const TV = process.env.TV_IP || process.env.TV_LAUNCHER_TV_HOST || '';
+if (!TV) { console.error('set TV_IP (or TV_LAUNCHER_TV_HOST) to the TV LAN address'); process.exit(1); }
 const TOKEN_FILE = process.env.TV_TOKEN_FILE || path.join(__dirname, '..', 'tv_token.json');
 let AUTH = '';
 try { AUTH = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8')).token; } catch (e) {}
@@ -114,6 +114,6 @@ async function enum_() {
   else if (cmd === 'enum') await enum_();
   else if (cmd === 'get') { const r = await req2('GET', process.argv[3], null, AUTH); console.log(r.code, r.body.slice(0, 2000)); }
   else if (cmd === 'put') { const r = await req2('PUT', process.argv[3], JSON.parse(process.argv[4]), AUTH); console.log(r.code, r.body.slice(0, 2000)); }
-  else console.log('usage: node tv_pwn.js pair|launch|current|home|enum|get|put ...');
+  else console.log('usage: node tv_launch.js pair|launch|current|home|enum|get|put ...');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

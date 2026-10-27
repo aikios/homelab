@@ -10,11 +10,6 @@ dependencies = [
 
 [tool.uv.workspace]
 members = ["libs/*", "services/*"]
-# Not yet a uv package (runs on the system python3); being migrated, see SPEC.md
-# "Restructure plan". Excluded or `uv sync` fails looking for its pyproject.toml.
-exclude = [
-    "services/tv-watch",
-]
 
 [tool.uv.sources]
 homelab-core = { workspace = true }

@@ -36,3 +36,11 @@ stream-resolver:
     SPORTS_MAX_CTX: STREAM_RESOLVER_MAX_CTX
     SPORTS_DELEGATE: STREAM_RESOLVER_DELEGATE
     SPORTS_SOURCE_URL: STREAM_RESOLVER_SOURCE_URL
+
+tv-launcher:
+  dirs: [tv-watch]
+  paths: {payloads: static, launcher: scripts, state/tv_watch.log: state/watcher.log}
+  units: [tv-watch.service]
+  env:
+    TV_HOST: TV_LAUNCHER_TV_HOST
+    PAYLOAD_PORT: TV_LAUNCHER_PORT

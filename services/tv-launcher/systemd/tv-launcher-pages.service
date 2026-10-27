@@ -1,0 +1,17 @@
+[Unit]
+Description=tv-launcher pages — serve the TV client (jellyfin.html, sports.html) on the LAN
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%%DEPLOY_USER%%
+WorkingDirectory=%%REPO%%/services/tv-launcher
+EnvironmentFile=%%REPO%%/services/tv-launcher/.env
+# Request log kept as a file (state/http.log): the client-deploy runbook greps it
+# for the cache-bust version the TV loaded.
+ExecStart=/bin/sh -c 'mkdir -p state && exec %%UV%% run --no-dev --no-sync --project %%REPO%% python -m http.server "$TV_LAUNCHER_PORT" --bind 0.0.0.0 --directory static >> state/http.log 2>&1'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
