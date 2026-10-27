@@ -32,7 +32,3 @@ stacks/**/data/
 # TV-stack per-host secrets (only the *.example files are tracked)
 services/tv-launcher/jf_url.txt
 services/tv-launcher/tv_token.json
-# pre-rename location; drop once no checkout has a services/tv-watch/ left
-services/tv-watch/jf_url.txt
-services/tv-watch/tv_token.json
-services/mediabot/

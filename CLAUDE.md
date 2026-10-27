@@ -7,6 +7,10 @@ systemd services run from this checkout, so edit + `sudo systemctl restart <svc>
 verify it live before starting the next.
 
 ## Hard rules
+- Service names follow `<subject>-<doer>` (SPEC.md "Restructure"): one name for the
+  dir, package, units (`<name>[-<cmd>]`) and env prefix (`<NAME>_`). Renames go
+  through `deploy/renames.yml`; never `git mv` a whole live service dir (it drags the
+  gitignored .env/state along) — move tracked files and let migrate.py do the rest.
 - NEVER add a Claude co-author trailer to commits (no `Co-Authored-By: Claude ...`).
 - Secrets never on argv / in env visible to `ps` — pass tokens to curl via `-K -`
   (stdin config). See libs/core/src/homelab_core/notify.py.
@@ -45,9 +49,12 @@ What exists and runs live on the server (all verified):
 - **stacks/** — 6 third-party apps as compose + scrubbed `.env.example` (config
   captures only; the containers still run from `~/services/<stack>`, NOT the repo —
   running host-up's stack portion here would clash by `container_name`).
-- **deploy/** — `install.sh <svc>` (`uv sync --all-packages`, then installs units;
+- **TV stack** — stream-resolver (blacklodge + vega), tv-launcher (blacklodge),
+  media-transcoder (`:submit,notify` on blacklodge, `:worker` on vega).
+- **deploy/** — `install.sh <svc> [<cmd>...]` (migrate.py → `uv sync --all-packages`
+  → `scripts/setup.sh` if present → install units, optionally only `<svc>-<cmd>.*`;
   units run `uv run --no-sync` so all members coexist in one venv) and
-  `host-up.sh [host]` (reads `deploy/hosts/hosts.local.yml`).
+  `host-up.sh [host]` (reads `deploy/hosts/hosts.local.yml`; `svc:cmd,cmd` entries).
 
 Key mechanics to remember:
 - **Units are host-agnostic templates** (`%%DEPLOY_USER%%` / `%%REPO%%` / `%%UV%%`);
@@ -61,13 +68,13 @@ Key mechanics to remember:
   gh token has `repo` scope.
 
 Open follow-ups (none blocking; also in SPEC.md "Open / to decide later"):
-- media-concierge carries **pre-existing ruff (66) / ty (16)** debt — not from the
+- media-concierge carries **pre-existing ruff (71) / ty (~20)** debt — not from the
   migration; clean up as its own pass (touches live code).
 - Two secret-scanning sub-toggles (non-provider patterns, validity checks) didn't
   flip via the old gh's API — enable in GitHub Settings → Code security if wanted.
-- **Retire the old `~/services/{rain-alert,topic-watcher,mediabot}` dirs** (now
-  orphaned fallbacks) once fully confident; the `~/services/<stack>` compose dirs
-  remain the authoritative/running copies for the containers.
+- The pre-repo `~/services/{rain-alert,topic-watcher,mediabot}` and `~/vizio_watch`
+  were retired 2026-10-26 (archived in `~/backups/pre-repo-services-2026-10-26.tgz`);
+  the `~/services/<stack>` compose dirs remain the running copies for the containers.
 - Optional: a `Messenger` adapter so media-concierge's discord.py bot presents the same
   outbound interface (deferred — its Gateway event loop isn't a `Messenger`).
 - Optional: LICENSE + repo topics for the public repo.

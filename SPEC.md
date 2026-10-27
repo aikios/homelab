@@ -41,7 +41,8 @@ homelab/
 ├── stacks/                 # third-party apps as config-as-code
 │   └── <app>/docker-compose.yml + .env.example
 ├── deploy/
-│   ├── install.sh          # per-host: uv sync → install+enable units
+│   ├── install.sh          # per-host: migrate → uv sync → setup.sh → install+enable units
+│   ├── migrate.py + renames.yml  # retire renamed services' old units, carry over .env/state
 │   └── hosts/hosts.example.yml   # which services/stacks run on which host
 └── .pre-commit-config.yaml # gitleaks
 ```
@@ -137,7 +138,9 @@ Conventions the TV stack breaks from the rest (on purpose):
 Per-service SPEC.md has the details; `tv-launcher/SPEC.md` carries the client-deploy
 runbook (edit page → push → pull → cache-bust → `tv_launch.js launch`).
 
-## Restructure plan (2026-10-26, agreed with the user; not started)
+## Restructure (2026-10-26, agreed with the user; DONE same day, all verified live)
+All steps below are complete on both hosts. Old names survive only in
+`deploy/renames.yml` (kept so a stale checkout can still migrate) and in history.
 Goal: keep `services/` **flat**, with one naming scheme where every name reads as
 a service and says what it does.
 
@@ -220,21 +223,17 @@ two-host move for no user-visible gain).
 ## Open / to decide later
 - **Rotate the Jellyfin API key** — it sat hardcoded in the pre-import reencode
   scripts (plaintext on two hosts); treat as exposed now that history is clean.
-- **sports-api** carries pre-existing ruff/ty debt (defensive-scraper blind
-  excepts, %-format, a stdlib handler override) — left as-is like media-concierge; its
-  own cleanup pass.
-- **Retire the pre-import runtime dirs** (`~/vizio_watch` on blacklodge, vega's
-  `~/vizio_recon/scratchpad`) once fully confident — kept as fallbacks for now.
+- **stream-resolver** carries pre-existing ruff (47 in server.py, 14 scripts/, 5
+  tests/) / ty (7) debt (defensive-scraper blind excepts, %-format, a stdlib
+  handler override) — unchanged by the restructure; its own cleanup pass.
 - **On-TV re-test** of the `sports.html` `location.hostname` change when the TV is
   next on (verified server-side; it auto-refreshes via its cache-buster).
-- vega now has a full workspace venv from `install.sh`'s `uv sync --all-packages`
-  even though it only runs stdlib services — harmless, revisit if it bloats.
-- Clean up media-concierge's pre-existing ruff (66) / ty (16) findings — noqa-code drift
+- vega has the full workspace venv (`uv sync --all-packages`) though it only runs
+  stream-resolver + the media-transcoder worker — harmless, revisit if it bloats.
+- Clean up media-concierge's pre-existing ruff (71) / ty (~20) findings — noqa-code drift
   vs current ruff + intentional patterns (SLF001, defensive BLE001/S110). Separate
   from the migration; touches live code.
-- Smoke-test a real media-concierge agent turn (owner DM) after the anthropic 1.4→1.13
-  bump — import succeeds, but that doesn't exercise `tool_runner`.
 - Secret delivery beyond `.env` per host (sops/age?) if hosts multiply.
-- Whether to add Dockerfiles for the self-contained Python services (rain-alert,
-  topic-watcher) for image-based portability — not needed now.
+- Whether to add Dockerfiles for the self-contained Python services (rain-notifier,
+  news-notifier) for image-based portability — not needed now.
 - Extracting a generic, host-free public "service template" repo for showcasing.
