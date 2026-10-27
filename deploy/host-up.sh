@@ -24,9 +24,12 @@ stacks="$(inv stacks)"
 
 echo
 echo "==> owner services: ${services:-（none）}"
-for svc in $services; do
-  echo "---- install.sh $svc ----"
-  UV="$UV" bash "$REPO/deploy/install.sh" "$svc"
+# An entry is <service> or <service>:<cmd>[,<cmd>...] (only those units here).
+for entry in $services; do
+  svc="${entry%%:*}"; cmds=()
+  [ "$entry" != "$svc" ] && IFS=, read -r -a cmds <<< "${entry#*:}"
+  echo "---- install.sh $entry ----"
+  UV="$UV" bash "$REPO/deploy/install.sh" "$svc" "${cmds[@]}"
 done
 
 echo

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Install or upgrade a homelab Python service on the current host.
 #
-#   deploy/install.sh <service-name>
+#   deploy/install.sh <service-name> [<cmd>...]
+#
+# With <cmd>s, only the units named <service>-<cmd>.* are installed (for services
+# whose units are split across hosts, e.g. `install.sh media-transcoder worker`).
 #
 # Assumes: this repo is checked out on the host, uv is installed, and
 # passwordless sudo is available (for copying/enabling systemd units).
@@ -10,7 +13,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-svc="${1:?usage: install.sh <service-name>}"
+svc="${1:?usage: install.sh <service-name> [<cmd>...]}"
+shift
+cmds=("$@")
 dir="$REPO/services/$svc"
 [ -d "$dir" ] || { echo "no such service: services/$svc" >&2; exit 1; }
 
@@ -29,10 +34,21 @@ DEPLOY_USER="${DEPLOY_USER:-$(id -un)}"
 echo "==> syncing workspace env (one lockfile, all members)"
 "$UV" sync --project "$REPO" --all-packages
 
+# Renamed service? Retire the old units and carry over untracked per-host files
+# (.env, state/) from the old dir first. No-op when already migrated.
+"$UV" run --project "$REPO" --no-sync python "$REPO/deploy/migrate.py" "$svc"
+
+wanted() {  # is this unit file selected by the <cmd> filter?
+  [ ${#cmds[@]} -eq 0 ] && return 0
+  local stem c; stem="$(basename "${1%.*}")"
+  for c in "${cmds[@]}"; do [ "$stem" = "$svc-$c" ] && return 0; done
+  return 1
+}
+
 if compgen -G "$dir/systemd/*" >/dev/null; then
   echo "==> installing systemd units for $svc"
   for unit in "$dir"/systemd/*.service "$dir"/systemd/*.timer "$dir"/systemd/*.path; do
-    [ -e "$unit" ] || continue
+    [ -e "$unit" ] && wanted "$unit" || continue
     sed -e "s|%%DEPLOY_USER%%|$DEPLOY_USER|g" \
         -e "s|%%REPO%%|$REPO|g" \
         -e "s|%%UV%%|$UV|g" "$unit" \
@@ -41,7 +57,7 @@ if compgen -G "$dir/systemd/*" >/dev/null; then
   done
   sudo -n systemctl daemon-reload
   for unit in "$dir"/systemd/*.timer "$dir"/systemd/*.path "$dir"/systemd/*.service; do
-    [ -e "$unit" ] || continue
+    [ -e "$unit" ] && wanted "$unit" || continue
     base="$(basename "$unit")"
     if [[ "$base" == *.timer || "$base" == *.path ]] || grep -q 'Restart=always' "$unit"; then
       sudo -n systemctl enable --now "$base"

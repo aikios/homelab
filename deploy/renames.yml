@@ -1,0 +1,9 @@
+# How a host moves from a service's old name/layout to its new one (see SPEC.md
+# "Restructure plan"). deploy/install.sh runs deploy/migrate.py <service> first;
+# it is idempotent, so entries can stay after every host has migrated.
+#
+# <new-service>:
+#   dirs:  [old service dirs]           untracked files (.env, state/, …) move over
+#   paths: {old/sub/path: new/sub/path}  optional remap while moving
+#   units: [old unit files]             stopped, disabled and removed on this host
+#   env:   {OLD_KEY: NEW_KEY}           renamed in services/<new-service>/.env
