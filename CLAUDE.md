@@ -14,6 +14,9 @@ verify it live before starting the next.
   or owner Discord IDs — only `*.example` files. Real values go in gitignored
   `.env` / `deploy/hosts/*.local.yml`. gitleaks pre-commit is set up
   (`uvx pre-commit install` to enable the hook in a fresh clone).
+- The sports-api **source site is a secret**: never name it (domain, brand, or
+  title strings) in code, docs, tests, or commit messages. It lives only in the
+  gitignored `services/sports-api/.env` as `SPORTS_SOURCE_URL`.
 
 ## Tooling
 - uv for everything: `uv sync`, `uv run`, `uv add`. (Interactively on this host uv
