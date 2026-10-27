@@ -175,9 +175,9 @@ def process_job(job):
     remote_mp4 = outdir + "/" + base + ".mp4"
     t0 = time.time()
 
-    info = ffprobe_remote(source)
-    streams = info.get("streams", [])
-    fmt = info.get("format", {})
+    probe = ffprobe_remote(source)
+    streams = probe.get("streams", [])
+    fmt = probe.get("format", {})
     src_dur = float(fmt.get("duration") or 0)
 
     if is_friendly(fmt, streams):
