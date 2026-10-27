@@ -129,5 +129,95 @@ class WorkerFilingTest(unittest.TestCase):
         move.assert_called_once_with("j.json", "done")
 
 
+class AlreadyHandledTest(unittest.TestCase):
+    def setUp(self):
+        from media_transcoder import submit as sub
+        self.sub = sub
+        self.tmp = tempfile.TemporaryDirectory()
+        self.video = os.path.join(self.tmp.name, "m.mkv")
+        with open(self.video, "w") as f:
+            f.write("x")
+        os.utime(self.video, (1000, 1000))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_inflight_is_skipped(self):
+        self.assertTrue(self.sub.already_handled(self.video, {self.video}, {}))
+
+    def test_never_seen_is_queued(self):
+        self.assertFalse(self.sub.already_handled(self.video, set(), {}))
+
+    def test_unchanged_since_filed_is_skipped(self):
+        self.assertTrue(self.sub.already_handled(self.video, set(), {self.video: 2000.0}))
+
+    def test_rewritten_after_filing_is_queued_again(self):
+        os.utime(self.video, (3000, 3000))
+        self.assertFalse(self.sub.already_handled(self.video, set(), {self.video: 2000.0}))
+
+    def test_missing_file_is_skipped(self):
+        gone = os.path.join(self.tmp.name, "gone.mkv")
+        self.assertTrue(self.sub.already_handled(gone, set(), {gone: 2000.0}))
+
+
+class ExtractSubsTest(unittest.TestCase):
+    """extract_subs with ssh + ffmpeg faked: the fake ffmpeg writes each mapped
+    track's file with the cue count we say that track has."""
+
+    def setUp(self):
+        self.stage = tempfile.TemporaryDirectory()
+        with mock.patch.dict(os.environ, {"MEDIA_TRANSCODER_STAGE": self.stage.name}):
+            from media_transcoder import core
+        self.core = core
+        self.p = mock.patch.object(core, "STAGE", self.stage.name)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        self.stage.cleanup()
+
+    def run_extract(self, streams, cues, existing=""):
+        def fake_pipe(args, _source):
+            outs = [args[i + 4] for i, a in enumerate(args) if a == "-map"]
+            idxs = [int(args[i + 1].split(":")[1]) for i, a in enumerate(args) if a == "-map"]
+            for idx, out in zip(idxs, outs):
+                with open(out, "w") as f:
+                    f.write("".join(f"{n}\n00:00:01,000 --> 00:00:02,000\nline {n}\n\n"
+                                    for n in range(cues[idx])))
+            return mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(self.core, "pipe_ffmpeg", side_effect=fake_pipe), \
+                mock.patch.object(self.core, "ssh", return_value=mock.Mock(stdout=existing)), \
+                mock.patch.object(self.core, "log"):
+            return self.core.extract_subs("/m/x.mkv", streams, "x", "/m")
+
+    @staticmethod
+    def st(index, lang, title="", forced=False, codec="subrip"):
+        return {"index": index, "codec_type": "subtitle", "codec_name": codec,
+                "tags": {"language": lang, "title": title},
+                "disposition": {"forced": int(forced)}}
+
+    def test_one_primary_per_language(self):
+        streams = [self.st(2, "eng", "Forced", forced=True), self.st(3, "eng", "English"),
+                   self.st(4, "eng", "English SDH"), self.st(5, "spa", "Spanish")]
+        got = self.run_extract(streams, {2: 6, 3: 900, 4: 900, 5: 700})
+        names = sorted(r for _, r in got)
+        self.assertEqual(names, ["x.en.srt", "x.es.srt"])
+        local_en = next(lp for lp, r in got if r == "x.en.srt")
+        self.assertTrue(local_en.endswith(".s3.srt"))  # full beats SDH on a tie
+        left = sorted(os.listdir(self.stage.name))
+        self.assertEqual(left, ["x.s3.srt", "x.s5.srt"])  # losers cleaned up
+
+    def test_existing_language_sidecar_is_left_alone(self):
+        streams = [self.st(3, "eng", "English"), self.st(5, "spa")]
+        got = self.run_extract(streams, {3: 900, 5: 700},
+                               existing="x.en.default.ass\nx.mkv\nother.en.srt\n")
+        self.assertEqual([r for _, r in got], ["x.es.srt"])
+
+    def test_concierge_styled_track_keeps_default_role(self):
+        streams = [self.st(2, "eng", "English (styled)", codec="ass")]
+        got = self.run_extract(streams, {2: 800})
+        self.assertEqual([r for _, r in got], ["x.en.default.ass"])
+
+
 if __name__ == "__main__":
     unittest.main()

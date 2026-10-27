@@ -5,9 +5,15 @@ Priority for an English track, so timing always matches the video:
   2. sidecar .srt/.ass next to the file        (from the same torrent — synced)
   3. online fetch via subliminal               (last resort; may need manual nudging)
 
-Whatever the source, the track we add is normalised to a styled .ass:
-yellow fill, black outline, Helvetica, italic (tweak via SUBS_* in .env). Muxed as a
-new DEFAULT subtitle track (mkv); the same styled .ass is what `burn` bakes in.
+When a release carries several tracks in the language (full / SDH / forced /
+signs & songs), the primary one (the one with the dialogue) is picked via
+homelab_core.subtitles.pick_primary, the same rule media-transcoder uses.
+
+Whatever the source, the track we add is normalised to a styled .ass: yellow fill,
+black outline, Helvetica, italic (tweak via MEDIA_CONCIERGE_SUBS_* in .env), written
+as a sidecar `<video stem>.<lang>.default.ass` that Jellyfin lists as the default
+track. The video file itself is never rewritten, so the mp4 that media-transcoder
+makes for the TV stays direct-playable. The same styled .ass is what `burn` bakes in.
 """
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ import threading
 from pathlib import Path
 
 from babelfish import Language
+from homelab_core import subtitles as subpick
 
 from . import jobs
 from .config import CFG, ROOT
@@ -28,39 +35,8 @@ from .config import CFG, ROOT
 _BURN_LOCK = CFG.state_dir / "burn.lock"
 SUB_EXT = {".srt", ".ass", ".ssa", ".vtt"}
 TEXT_SUB_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
-FONT_DIR = ROOT / "fonts"
-_FONT_MIME = "application/vnd.ms-opentype"
-
-
-def _font_files() -> list[Path]:
-    return sorted(p for p in FONT_DIR.glob("*") if p.suffix.lower() in (".otf", ".ttf"))
-
-
-def _attachment_names(video: str) -> set[str]:
-    out = subprocess.run(
-        [CFG.ffprobe, "-v", "error", "-select_streams", "t",
-         "-show_entries", "stream_tags=filename", "-of", "csv=p=0", video],
-        capture_output=True, text=True, check=False)
-    return {x.strip().lower() for x in out.stdout.splitlines() if x.strip()}
-
-
-def ensure_fonts(video: str) -> bool:
-    """Attach the bundled font faces to an mkv if they're not already there.
-    Uses mkvpropedit (in-place header edit, ~1-2s). Returns True if it added any."""
-    fonts = _font_files()
-    if not fonts or not video.lower().endswith(".mkv"):
-        return False
-    have = _attachment_names(video)
-    missing = [f for f in fonts if f.name.lower() not in have]
-    if not missing:
-        return False
-    cmd = ["mkvpropedit", video]
-    for f in missing:
-        cmd += ["--attachment-mime-type", _FONT_MIME, "--add-attachment", str(f)]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode not in (0, 1):  # 1 = warnings only
-        raise RuntimeError(f"mkvpropedit failed: {r.stderr[-300:] or r.stdout[-300:]}")
-    return True
+FONT_DIR = ROOT / "fonts"  # house font, handed to libass when burning
+_VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm"}
 
 
 # ───────────────────────────  probing / source pick  ───────────────────────────
@@ -74,11 +50,14 @@ def probe(video: str) -> dict:
     try:
         for s in json.loads(out.stdout or "{}").get("streams", []):
             tags = s.get("tags", {})
+            disp = s.get("disposition", {})
             embedded.append({"index": s["index"], "rel_index": len(embedded),
                              "codec": s.get("codec_name"),
                              "lang": (tags.get("language") or "und").lower(),
                              "title": tags.get("title", ""),
-                             "forced": bool(s.get("disposition", {}).get("forced"))})
+                             "forced": bool(disp.get("forced")),
+                             "hearing_impaired": bool(disp.get("hearing_impaired")),
+                             "cues": subpick.frames_tag(tags)})
     except json.JSONDecodeError:
         pass
     p = Path(video)
@@ -111,7 +90,29 @@ def has_lang(video: str, lang: str) -> bool:
     return any(_lang_match(Path(s).stem.split(".")[-1], lang) for s in info["sidecar"])
 
 
-STYLED_TITLE = "English (styled)"
+STYLED_TITLE = "English (styled)"  # legacy: the title of a styled track muxed into an mkv
+
+
+def styled_sidecar(video: str, lang: str = "en") -> Path:
+    """Where our styled track lives: next to the video, flagged default for Jellyfin."""
+    p = Path(video)
+    return p.with_name(f"{p.stem}.{lang}.default.ass")
+
+
+def _style_line_of(sub_path: str) -> str | None:
+    try:
+        text = Path(sub_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for ln in text.splitlines():
+        if ln.startswith("Style: Default"):
+            return ln.strip()
+    return None
+
+
+def _ours(sub_path: str) -> bool:
+    """A styled .ass we produced (its Default style is the current house style)."""
+    return sub_path.lower().endswith(".ass") and _style_line_of(sub_path) == _style_line()
 
 
 def _current_style_line(video: str) -> str | None:
@@ -131,10 +132,38 @@ def _current_style_line(video: str) -> str | None:
     return line
 
 
-def needs_restyle(video: str) -> bool:
-    """True if the embedded styled track's style doesn't match the current house style."""
-    cur = _current_style_line(video)
+def needs_restyle(video: str, lang: str = "en") -> bool:
+    """True if our styled track (sidecar, or a legacy one muxed into an mkv) doesn't
+    match the current house style."""
+    side = styled_sidecar(video, lang)
+    cur = _style_line_of(str(side)) if side.exists() else _current_style_line(video)
     return cur is None or cur != _style_line()
+
+
+def _alone_in_dir(video: str) -> bool:
+    p = Path(video)
+    return sum(1 for f in p.parent.iterdir() if f.suffix.lower() in _VIDEO_EXT) == 1
+
+
+def _fill_cues(video: str, tracks: list[dict]) -> None:
+    """Cue counts for embedded tracks the mkv statistics tags didn't cover: extract
+    all of them in ONE ffmpeg pass (each pass reads the whole file) and count."""
+    todo = [t for t in tracks if t.get("cues") is None]
+    if not todo:
+        return
+    cmd = [CFG.ffmpeg, "-v", "error", "-y", "-i", video]
+    outs = []
+    for t in todo:
+        out = CFG.state_dir / f"cuecount.{t['rel_index']}.ass"
+        cmd += ["-map", f"0:s:{t['rel_index']}", "-c:s", "ass", str(out)]
+        outs.append((t, out))
+    subprocess.run(cmd, capture_output=True, text=True, check=False)
+    for t, out in outs:
+        try:
+            t["cues"] = subpick.cue_count(out.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            t["cues"] = None
+        out.unlink(missing_ok=True)
 
 
 def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
@@ -142,17 +171,37 @@ def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
     ('embedded', rel_index) | ('sidecar', path) | ('online', path).
     Tries release-bundled options before going online."""
     info = probe(video)
+    if styled_sidecar(video, lang).exists():
+        return ("done", "")
     for e in info["embedded"]:
         if e["codec"] == "ass" and e["title"] == STYLED_TITLE:
             return ("done", "")
-    for e in info["embedded"]:
-        if _lang_match(e["lang"], lang) and e["codec"] in TEXT_SUB_CODECS and not e["forced"]:
-            return ("embedded", str(e["rel_index"]))
-    for s in info["sidecar"]:
+    # several tracks in the language (full / SDH / forced / signs): take the primary
+    emb = [e for e in info["embedded"]
+           if _lang_match(e["lang"], lang) and e["codec"] in TEXT_SUB_CODECS]
+    if emb:
+        _fill_cues(video, emb)
+        best = subpick.pick_primary(emb)
+        if best:
+            return ("embedded", str(best["rel_index"]))
+    side = []
+    # this video's own sidecars; other subs in the folder only when the video is
+    # alone there (a season folder's other .en.srt files belong to other episodes)
+    own = [s for s in info["sidecar"] if Path(s).name.startswith(Path(video).stem)]
+    for s in own or (info["sidecar"] if _alone_in_dir(video) else []):
         stem_tail = Path(s).stem.lower()
         if _lang_match(stem_tail.split(".")[-1], lang) or f".{lang}" in stem_tail or \
            (lang == "en" and "english" in stem_tail):
-            return ("sidecar", s)
+            if _ours(s):  # a copy of our styled track (e.g. extracted by the transcoder)
+                return ("done", "")
+            try:
+                cues = subpick.cue_count(Path(s).read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            side.append({"path": s, "title": Path(s).name, "cues": cues})
+    best = subpick.pick_primary(side)
+    if best:
+        return ("sidecar", best["path"])
     # only-one sidecar with no language marker: assume it's the release's main sub
     bare = [s for s in info["sidecar"] if "." not in Path(s).stem.split("]")[-1]]
     if len(info["sidecar"]) == 1:
@@ -278,57 +327,22 @@ def to_styled_ass(sub_or_video: str, embedded_rel_index: str | None = None,
 
 # ───────────────────────────  attach  ───────────────────────────
 
-def remux_to_mkv(video: str) -> str:
-    """Container swap mp4/etc -> mkv, stream copy (no re-encode). Drops source
-    subtitle streams (mov_text won't fit mkv and we replace subs anyway). Deletes the
-    original and returns the new .mkv path."""
-    src = Path(video)
-    out = src.with_suffix(".mkv")
-    if out.exists() and out != src:
-        out = src.with_name(src.stem + ".remux.mkv")
-    cmd = [CFG.ffmpeg, "-y", "-i", video, "-map", "0:v", "-map", "0:a?",
-           "-c", "copy", str(out)]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0 or not out.exists() or out.stat().st_size < 1_000_000:
-        out.unlink(missing_ok=True)
-        raise RuntimeError(f"remux to mkv failed: {r.stderr[-400:]}")
-    if out != src:
-        src.unlink(missing_ok=True)
-        final = src.with_suffix(".mkv")
-        if out != final:
-            out.replace(final)
-            out = final
-    return str(out)
+def write_sidecar(video: str, ass_path: str, lang: str = "en") -> str:
+    """Install a styled .ass as the video's default sidecar track (replacing an older
+    one). The video is not touched. Returns the sidecar path."""
+    dest = styled_sidecar(video, lang)
+    os.replace(ass_path, dest)
+    return str(dest)
 
 
-def mux_styled(video: str, ass_path: str, lang: str = "en") -> str:
-    """Rewrite as: video + audio + ONE subtitle = our styled .ass, default.
-
-    All other embedded subs are dropped on purpose — keeping 22 language tracks is
-    what let players pick the wrong (unstyled) one. Re-running is safe/idempotent.
-    Non-mkv (mp4, m4v, avi, ...) is remuxed to mkv first (stream copy, no re-encode).
-    Returns the final path (which changes if a remux happened).
-    """
-    src = Path(video)
-    if src.suffix.lower() != ".mkv":
-        video = remux_to_mkv(video)
-        src = Path(video)
-    tmp = src.with_suffix(".muxing.mkv")
-    a3 = _alpha3(lang)
-    # ASS is input 0 so it is deterministically output subtitle stream 0.
-    cmd = [CFG.ffmpeg, "-y", "-i", ass_path, "-i", video,
-           "-map", "1:v", "-map", "1:a?", "-map", "0:0",
-           "-c", "copy",
-           "-metadata:s:s:0", f"language={a3}",
-           "-metadata:s:s:0", "title=English (styled)",
-           "-disposition:s:0", "default",
-           str(tmp)]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0 or not tmp.exists():
-        raise RuntimeError(f"mux failed: {r.stderr[-500:]}")
-    os.replace(tmp, video)
-    Path(ass_path).unlink(missing_ok=True)
-    return video
+def cleanup_online(sub_path: str) -> None:
+    """Drop the intermediates of an online fetch (the downloaded .srt and its
+    .synced re-timing) once the styled sidecar exists, so they don't show up as
+    extra tracks."""
+    p = Path(sub_path)
+    orig = p.with_name(p.name.replace(".synced", "")) if ".synced" in p.name else p
+    for f in {p, orig}:
+        f.unlink(missing_ok=True)
 
 
 def burn_async(video: str, ass_path: str, job_id: str) -> None:
@@ -341,8 +355,9 @@ def burn_async(video: str, ass_path: str, job_id: str) -> None:
             src = Path(video)
             out = src.with_name(src.stem + ".subbed" + src.suffix)
             esc = ass_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+            fonts = str(FONT_DIR).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
             cmd = ["nice", "-n", "19", CFG.ffmpeg, "-y", "-i", video,
-                   "-vf", f"ass='{esc}'", "-c:v", "libx264", "-preset", "veryfast",
+                   "-vf", f"ass='{esc}':fontsdir='{fonts}'", "-c:v", "libx264", "-preset", "veryfast",
                    "-crf", "20", "-c:a", "copy", "-map", "0:v:0", "-map", "0:a?",
                    str(out)]
             jobs.update(job_id, last_report="burning… hours on this box")

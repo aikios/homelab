@@ -46,7 +46,7 @@ Discord  ──►  bot.py (discord.py)  ──►  agent.py (anthropic SDK, too
      find / get / queue_status / library_report
      disk_report / reclaim_space
      import_file (guessit + Radarr/Sonarr lookup) + junk cleanup
-     attach_subs: fetch (subliminal) / mux / burn (ffmpeg, bg job)
+     attach_subs: fetch (subliminal) / styled sidecar / burn (ffmpeg, bg job)
      jellyfin_scan / remove
      run_shell (arbitrary, logged) — covers the long tail / "full perms"
 ```
@@ -103,7 +103,7 @@ MEDIA_CONCIERGE_MODEL=claude-sonnet-5
 If the owner doesn't specify, assume:
 - quality **1080p** (Radarr/Sonarr profile `HD-1080p`)
 - audio **English**
-- subtitles **English**, **soft** (muxed track, not burned)
+- subtitles **English**, **soft** (styled `.ass` sidecar flagged default, not burned)
 - after a download that pushes free space < `MEDIA_CONCIERGE_MIN_FREE_GB`, the agent first proposes
   a reclaim (watched → oldest-added) and asks once; on repeat low-space it just does it.
 
@@ -150,7 +150,7 @@ himself, `add_magnet` bypasses the arrs entirely:
    `organize.import_download()` — which, unlike `import_file`, files **every**
    episode of a season pack as `Title - SxxExx.ext` (movies: biggest video as
    `Title (Year)`), identifying via guessit + arr metadata lookup from the torrent
-   name. It then muxes styled subs per imported file, removes the now-emptied
+   name. It then adds styled subs per imported file, removes the now-emptied
    torrent from qBittorrent (files were moved, not copied — avoids the dangling-seed
    `file_open` errors), and triggers a Jellyfin scan.
 
@@ -207,7 +207,7 @@ Mutate (all logged to `logs/actions.jsonl`):
   parse → arr lookup → (confirm) → move/rename into `Title (Year)/…` → strip junk
   (`.DS_Store`, `._*`, `*sample*`) → jellyfin scan.
 - `attach_subs(item, lang=en, mode=soft|burn)` — fetch if absent (subliminal), then
-  mux (instant) or burn (ffmpeg bg job).
+  sidecar (instant) or burn (ffmpeg bg job).
 - `reclaim_space(target_gb=MEDIA_CONCIERGE_MIN_FREE_GB, dry_run=True)` — rank watched → oldest-added;
   delete via Radarr/Sonarr (trashes files) + trash-cli for orphans.
 - `jellyfin_scan(path=None)` — targeted or full library refresh.
@@ -293,3 +293,18 @@ DM the bot, or @mention it in a channel. Only `OWNER_DISCORD_ID` is obeyed.
 qBittorrent auth: subnet-whitelisted (`172.16.0.0/12` + localhost) so host + arr
 bypass login. FlareSolverr at :8191 for Cloudflare-gated indexers. Radarr/Sonarr
 renaming is ON so imports land as `Title (Year)/…`.
+
+## Subtitles vs media-transcoder (2026-10-27)
+The two used to fight: soft subs were muxed into the video, which needs an mkv, so
+attaching subs to a transcoder-made mp4 remuxed it back to mkv (not direct-playable
+on the TV), and the transcoder never retried. Now mp4 is the final format and
+subtitles always live beside the video:
+- soft subs = `<stem>.<lang>.default.ass` (house style); the video is never
+  rewritten. Jellyfin lists it as the default track and the TV player prefers it.
+- With several tracks in the language, the primary one (most dialogue; never forced
+  / signs & songs; plain over SDH on a tie) is used: `homelab_core.subtitles`,
+  shared with media-transcoder. Cue counts come from the mkv statistics tag when
+  present, else one ffmpeg pass over all candidates.
+- Only this video's own sidecars are candidates (other subs in the folder only when
+  the video is alone there), so season folders don't cross-wire episodes.
+- Online-fetch intermediates (`.srt`, `.synced.srt`) are deleted once styled.

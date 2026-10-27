@@ -31,7 +31,9 @@ media host (`MEDIA_TRANSCODER_QUEUE_DIR`). A worker claims one with an atomic
   media-transcoder-submit --scan       # queue every non-direct-playable Jellyfin item
   media-transcoder-submit <file> ...   # submit explicit paths
   ```
-  `--scan` is idempotent (skips queued/claimed/done; failed jobs are retried) and
+  `--scan` is idempotent (skips queued/claimed, and done paths unchanged since
+  their job was filed: a file rewritten later, e.g. remuxed, is checked again;
+  failed jobs are retried) and
   skips files missing, zero-size, or modified within `MEDIA_TRANSCODER_STABLE_SECS`
   (still importing). It auto-loads the service `.env`. The *arr apps run in Docker
   and can't reach the host queue without bind-mount plumbing, hence a 5-min poll
@@ -46,7 +48,10 @@ media host (`MEDIA_TRANSCODER_QUEUE_DIR`). A worker claims one with an atomic
 - `worker.py` — the daemon loop (claim → `core.process_job` → file result).
 - `core.py` — ffprobe the source remotely; skip if already friendly; else pull it
   over ssh and encode with a 3-tier ffmpeg fallback (NVENC → VAAPI GPU-decode →
-  CPU-decode + VAAPI-encode); extract text subs as sidecars; upload;
+  CPU-decode + VAAPI-encode); extract text subs as sidecars (one read for all
+  tracks; ONE per language, the primary track via `homelab_core.subtitles`; a
+  language that already has a sidecar, e.g. media-concierge's styled
+  `<stem>.en.default.ass`, is left alone); upload;
   **byte-verify the remote size before removing the original**; refresh Jellyfin.
 
 ## Config (gitignored `.env`, see `.env.example`)

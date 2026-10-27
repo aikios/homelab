@@ -62,17 +62,40 @@ def api(path):
 
 
 def known_sources():
-    srcs = set()
+    """Paths in flight (queue/ or claimed/), and for paths already filed in done/,
+    when they were filed (the newest job json's mtime)."""
+    inflight, filed = set(), {}
     for state in STATES:
         for fn in glob.glob(os.path.join(BASE, state, "*.json")):
             try:
                 with open(fn) as f:
                     s = json.load(f).get("source")
-                    if s:
-                        srcs.add(s)
+                mtime = os.path.getmtime(fn)
             except (ValueError, OSError):
-                pass
-    return srcs
+                continue
+            if not s:
+                continue
+            if state == "done":
+                filed[s] = max(filed.get(s, 0.0), mtime)
+            else:
+                inflight.add(s)
+    return inflight, filed
+
+
+def already_handled(path, inflight, filed):
+    """Skip a path that is queued/claimed, or was filed done and hasn't changed
+    since. A file rewritten after its job (e.g. remuxed back to mkv) is checked
+    again instead of being skipped forever; an unchanged one (already-friendly,
+    or its original couldn't be removed) is not re-queued every scan."""
+    if path in inflight:
+        return True
+    filed_at = filed.get(path)
+    if filed_at is None:
+        return False
+    try:
+        return os.path.getmtime(path) <= filed_at
+    except OSError:
+        return True  # gone: nothing to do (submit() would skip it anyway)
 
 
 def submit(path, **extra):
@@ -106,7 +129,7 @@ def submit(path, **extra):
 def scan():
     items = api("/Items?Recursive=true&IncludeItemTypes=Movie,Episode"
                 "&Fields=MediaSources,Path")["Items"]
-    have = known_sources()
+    inflight, filed = known_sources()
     queued = []
     for it in items:
         ms = (it.get("MediaSources") or [{}])[0]
@@ -121,7 +144,7 @@ def scan():
             next((s for s in streams if s.get("Type") == "Audio"), {})
         friendly = (ms.get("Container") == "mp4" and v.get("Codec") == "h264"
                     and a.get("Codec") == "aac")
-        if friendly or path in have:
+        if friendly or already_handled(path, inflight, filed):
             continue
         why = (f"{ms.get('Container') or '?'} · "
                f"{v.get('Codec') or '?'}/{a.get('Codec') or '?'}")

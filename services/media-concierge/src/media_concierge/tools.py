@@ -31,15 +31,6 @@ def _log(tool: str, **kw) -> None:
     _ACTIONS.open("a").write(json.dumps({"ts": time.time(), "tool": tool, **kw}) + "\n")
 
 
-def _arr_rescan_all() -> None:
-    """After a file rename on disk (mp4→mkv remux), tell the arrs to re-link."""
-    for app, cmd in ((Radarr(), "RescanMovie"), (Sonarr(), "RescanSeries")):
-        try:
-            app.command(cmd)
-        except Exception:  # noqa: BLE001
-            pass
-
-
 def _fmt_bytes(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024:
@@ -368,18 +359,22 @@ def import_file(path: str, kind: str = "auto", title_hint: str | None = None,
 @beta_tool
 def attach_subs(video_path: str, lang: str = "en", mode: str = "soft") -> str:
     """Add a subtitle track in `lang` to a library file, styled to the house look
-    (yellow / black outline / Helvetica / italic — configurable via SUBS_* in .env).
+    (yellow / black outline / Helvetica / italic — configurable via
+    MEDIA_CONCIERGE_SUBS_* in .env).
 
     Source priority (so timing always matches the video):
       1. an embedded text track already in the file (came with the release)
       2. a sidecar .srt/.ass from the same torrent
       3. only then, an online fetch (and it says so, so you can sanity-check timing)
+    When there are several tracks in the language, the primary one (most dialogue;
+    never a forced / signs & songs track; plain over SDH on a tie) is used.
 
     Args:
         video_path: absolute path to the video in the library (.mkv/.mp4/.m4v).
         lang: ISO language, e.g. "en", "es".
-        mode: "soft" (default, muxed styled .ass; mp4/m4v are remuxed to mkv first,
-              stream-copy, no re-encode) or "burn" (baked into the video, slow).
+        mode: "soft" (default: a styled .ass sidecar flagged default; the video file
+              is left untouched, so the TV-friendly mp4 stays direct-playable) or
+              "burn" (baked into the video, slow).
     """
     return _attach_subs(video_path, lang, mode, ctx.channel_id())
 
@@ -396,15 +391,11 @@ def _attach_subs(video_path: str, lang: str, mode: str, channel_id: int) -> str:
                 f"{[e['lang'] for e in info['embedded']] or 'none'}.")
     kind, ref = src
     if kind == "done":
-        if not subs.needs_restyle(video_path):
-            try:
-                added = subs.ensure_fonts(video_path)
-            except Exception as e:  # noqa: BLE001
-                return f"{p.name} already styled; font attach failed: {e}"
-            return (f"{p.name} already has the current styled {lang} track"
-                    + (" — attached the Helvetica-clone fonts." if added else "."))
-        # style is stale (e.g. font changed) — restyle from the embedded styled track
-        kind, ref = "embedded", "0"
+        if not subs.needs_restyle(video_path, lang):
+            return f"{p.name} already has the current styled {lang} track."
+        # style is stale (e.g. font changed): restyle from our existing styled track
+        side = subs.styled_sidecar(video_path, lang)
+        kind, ref = ("sidecar", str(side)) if side.exists() else ("embedded", "0")
     note = {"embedded": "embedded track (release-synced)",
             "sidecar": "release sidecar (synced)",
             "online": "fetched online — check timing"}[kind]
@@ -417,23 +408,17 @@ def _attach_subs(video_path: str, lang: str, mode: str, channel_id: int) -> str:
         return f"subtitle conversion failed: {e}"
 
     if mode == "soft":
+        final = subs.write_sidecar(video_path, ass, lang)
+        if kind == "online":
+            subs.cleanup_online(ref)
         try:
-            final = subs.mux_styled(video_path, ass, lang)
-        except RuntimeError as e:
-            return f"{e}  (source was: {note})"
-        fonts = ""
-        try:
-            if subs.ensure_fonts(final):
-                fonts = " + fonts"
-        except Exception:  # noqa: BLE001
-            pass
-        remuxed = ""
-        if final != video_path:
-            remuxed = f" (remuxed {Path(video_path).suffix}→.mkv)"
-            _arr_rescan_all()
-        _log("attach_subs", video=final, lang=lang, mode="soft", source=kind,
-             remuxed=bool(remuxed))
-        return f"Muxed styled {lang} subs{fonts} into {Path(final).name}{remuxed}. source: {note}."
+            Jellyfin().refresh()
+        except Exception as e:  # noqa: BLE001 — the next library scan picks it up anyway
+            print(f"attach_subs: jellyfin refresh failed: {e}", flush=True)
+        _log("attach_subs", video=video_path, sidecar=final, lang=lang, mode="soft",
+             source=kind)
+        return (f"Added styled {lang} subs as {Path(final).name} (default track; "
+                f"video untouched). source: {note}.")
 
     j = jobs.create("burn", p.name, channel_id, video=video_path, lang=lang)
     subs.burn_async(video_path, ass, j.id)

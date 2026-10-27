@@ -11,6 +11,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from homelab_core import subtitles as subpick
+
 # Config comes from the environment (the systemd unit's EnvironmentFile); no real
 # host, key, or path lives in this public tree. See .env.example.
 HOST = os.environ.get("MEDIA_TRANSCODER_SSH_HOST", "")  # ssh target holding the media, e.g. user@server
@@ -24,6 +26,8 @@ os.makedirs(STAGE, exist_ok=True)
 STATE_DIR = Path(__file__).resolve().parents[2] / "state"
 LOG = os.environ.get("MEDIA_TRANSCODER_LOG") or str(STATE_DIR / "worker.log")
 TEXT_SUB_CODECS = ("ass", "ssa", "srt", "subrip")
+SUB_EXTS = (".srt", ".ass", ".ssa", ".vtt")
+STYLED_TITLE = "English (styled)"  # media-concierge's legacy muxed track
 
 
 def log(msg):
@@ -119,24 +123,66 @@ def encode(source, streams, local_mp4):
     return None
 
 
-def extract_subs(source, streams, base):
-    sidecars = []
+def existing_sub_langs(outdir, base):
+    """Languages that already have a sidecar for this video on the media host
+    (`<base>.<lang>[.flags].<ext>`), e.g. media-concierge's styled
+    `<base>.en.default.ass`. Those are never extracted again or overwritten."""
+    r = ssh("ls -1 " + shlex.quote(outdir))
+    langs = set()
+    for name in r.stdout.splitlines():
+        stem, ext = os.path.splitext(name)
+        if ext.lower() in SUB_EXTS and stem.startswith(base + "."):
+            langs.add(subpick.lang_key(stem[len(base) + 1:].split(".")[0]))
+    return langs
+
+
+def extract_subs(source, streams, base, outdir):
+    """Text subs -> sidecars, ONE per language: the primary track (the one with
+    the dialogue, not forced / signs / SDH-on-a-tie; see homelab_core.subtitles),
+    skipping languages that already have a sidecar. All candidates come out of a
+    single read of the source; returns [(local path, remote name)]."""
+    have = existing_sub_langs(outdir, base)
+    by_lang = {}
     for s in text_subs(streams):
-        lang = "und"
-        for tag in (s.get("tags") or {}).values():
-            if isinstance(tag, str) and 2 <= len(tag) <= 3 and tag.isalpha():
-                lang = tag.lower()
-                break
+        tags = s.get("tags") or {}
+        lang = subpick.lang_key(tags.get("language") or "und")
+        if lang in have:
+            continue
         codec = (s.get("codec_name") or "").lower()
         ext = "ass" if codec in ("ass", "ssa") else "srt"
-        local_sub = os.path.join(STAGE, base + "." + lang + "." + ext)
-        ff = pipe_ffmpeg(["-i", "pipe:0", "-map", "0:" + str(s["index"]),
-                          "-c:s", "copy", local_sub], source)
-        if ff.returncode == 0 and os.path.exists(local_sub) and os.path.getsize(local_sub) > 100:
-            sidecars.append((local_sub, base + "." + lang + "." + ext))
-        else:
-            log("sub extract failed idx " + str(s.get("index")) + ": " +
-                (ff.stderr or "").strip()[-200:])
+        by_lang.setdefault(lang, []).append({
+            "index": s["index"], "ext": ext, "title": tags.get("title", ""),
+            "forced": bool((s.get("disposition") or {}).get("forced")),
+            "hearing_impaired": bool((s.get("disposition") or {}).get("hearing_impaired")),
+            "cues": subpick.frames_tag(tags),
+            "local": os.path.join(STAGE, f"{base}.s{s['index']}.{ext}")})
+    tracks = [t for ts in by_lang.values() for t in ts]
+    if not tracks:
+        return []
+    args = ["-i", "pipe:0"]
+    for t in tracks:
+        args += ["-map", "0:" + str(t["index"]), "-c:s", "copy", t["local"]]
+    ff = pipe_ffmpeg(args, source)
+    if ff.returncode != 0:
+        log("sub extract warnings: " + (ff.stderr or "").strip()[-200:])
+    sidecars = []
+    for lang, ts in by_lang.items():
+        ok = [t for t in ts if os.path.exists(t["local"]) and os.path.getsize(t["local"]) > 100]
+        for t in ok:
+            if t["cues"] is None:
+                with open(t["local"], encoding="utf-8", errors="replace") as f:
+                    t["cues"] = subpick.cue_count(f.read())
+        best = subpick.pick_primary(ok)
+        for t in ts:
+            if t is not best and os.path.exists(t["local"]):
+                os.remove(t["local"])
+        if not best:
+            continue
+        # a styled track media-concierge muxed into an mkv keeps its default role
+        rname = (f"{base}.{lang}.default.ass" if best["title"] == STYLED_TITLE
+                 else f"{base}.{lang}.{best['ext']}")
+        log(f"sub {lang}: track {best['index']} ({best['cues']} cues) of {len(ts)}")
+        sidecars.append((best["local"], rname))
     return sidecars
 
 
@@ -193,7 +239,7 @@ def process_job(job):
 
     sidecars = []
     if job.get("extract_subs", True):
-        sidecars = extract_subs(source, streams, base)
+        sidecars = extract_subs(source, streams, base, outdir)
         for _, rname in sidecars:
             log("sub sidecar: " + rname)
     info["subs"] = len(sidecars)

@@ -307,7 +307,7 @@ def _recent_media_files() -> list[tuple[str, str, str]]:
 
 
 def _reconcile_subs() -> None:
-    """Self-heal: any movie or episode imported recently whose mkv lacks the current
+    """Self-heal: any movie or episode imported recently that lacks the current
     styled English track gets one — regardless of how it was downloaded."""
     seen = _seen_reconciled()
     for title, path, _added in _recent_media_files():

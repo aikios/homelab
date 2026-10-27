@@ -152,8 +152,10 @@ function openPlayer(id, name, rtTicks) {
     ccMsId = ms.Id;
     subStreams = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Subtitle"; });
     var def = null;
+    // default track (our styled sidecar) > English .ass (styled) > any English
     subStreams.forEach(function (s) { if (s.IsDefault && !def) def = s; });
-    subStreams.forEach(function (s) { if (!def && (s.Language || "").indexOf("eng") === 0) def = s; });
+    subStreams.forEach(function (s) { if (!def && /^en/i.test(s.Language || "") && /ass|ssa/i.test(s.Codec || "")) def = s; });
+    subStreams.forEach(function (s) { if (!def && /^en/i.test(s.Language || "")) def = s; });
     ccIdx = def ? subStreams.indexOf(def) : (subStreams.length ? 0 : -1);
     if (!subStreams.length) pMsg("no subtitle tracks", 2500);
     // direct-playable? (mp4 + h264 + aac): serve original file, native seeking works
