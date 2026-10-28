@@ -2,8 +2,11 @@
 
 Consolidated from the news-notifier / rain-notifier pattern:
 
-- the bot token goes to ``curl`` via a stdin config (``-K -``), never on argv or
-  an env var that shows up in ``ps`` / ``systemctl status``;
+- the bot token only ever lives in this process (an in-memory request header),
+  never on argv or in an env var that shows up in ``ps`` / ``systemctl status``;
+- requests reuse one keep-alive HTTPS connection per thread. news-notifier polls
+  every 2s; a fresh ``curl`` + TLS handshake per poll measured 180 ms CPU (~9% of
+  a core around the clock) vs 4.6 ms on a reused connection (2026-10-27);
 - requests carry an explicit ``User-Agent`` because Discord's REST API sits
   behind Cloudflare and blocks bare clients with HTTP 403 ``error code: 1010``.
 
@@ -16,13 +19,15 @@ only ever sends a one-shot DM (:func:`send_discord_dm`), while news-notifier als
 needs to open the DM channel once and reuse it, send to a known channel, and
 *read* the channel back for owner commands — hence the channel-level primitives
 (:func:`open_dm_channel`, :func:`send_channel_message`,
-:func:`fetch_channel_messages`). Only the token is sensitive, so only it goes
-through the ``-K -`` stdin config; method/url/body are fine on argv.
+:func:`fetch_channel_messages`).
 """
 from __future__ import annotations
 
+import http.client
 import json
-import subprocess
+import threading
+import time
+import urllib.parse
 from typing import Any
 
 from .config import require, shared_env
@@ -30,21 +35,50 @@ from .config import require, shared_env
 API = "https://discord.com/api/v10"
 USER_AGENT = "DiscordBot (https://github.com/homelab/homelab, 0.1)"
 MAX_MESSAGE_CHARS = 2000  # Discord's hard limit on message content
+MAX_RETRY_AFTER = 10.0    # s; longer rate-limit waits surface as an error instead
+
+_local = threading.local()  # one keep-alive connection per thread
+
+
+def _connection(host: str) -> http.client.HTTPSConnection:
+    conn = getattr(_local, "conn", None)
+    if conn is None or conn.host != host:
+        conn = _local.conn = http.client.HTTPSConnection(host, timeout=20)
+    return conn
 
 
 def _request(method: str, url: str, token: str, payload: dict | None = None) -> Any:
-    args = ["curl", "-sS", "-X", method, "-H", f"User-Agent: {USER_AGENT}"]
-    if payload is not None:
-        args += ["-H", "Content-Type: application/json", "--data", json.dumps(payload)]
-    args += ["-K", "-", url]
-    proc = subprocess.run(
-        args, check=False, input=f'header = "Authorization: Bot {token}"\n',
-        text=True, capture_output=True, timeout=20,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"curl failed ({proc.returncode}): {proc.stderr.strip()}")
-    body = proc.stdout.strip()
-    data = json.loads(body) if body else None
+    parts = urllib.parse.urlsplit(url)
+    path = parts.path + (f"?{parts.query}" if parts.query else "")
+    body = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Authorization": f"Bot {token}", "User-Agent": USER_AGENT}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    raw = b""
+    for attempt in range(3):
+        try:
+            conn = _connection(parts.netloc)
+            conn.request(method, path, body=body, headers=headers)
+            resp = conn.getresponse()
+            raw = resp.read()
+        except (http.client.HTTPException, OSError) as e:
+            # an idle keep-alive socket the server already closed: reconnect
+            stale = getattr(_local, "conn", None)
+            if stale is not None:
+                stale.close()
+            _local.conn = None
+            if attempt == 2:
+                raise RuntimeError(f"Discord request failed: {e}") from e
+            continue
+        if resp.status == 429 and attempt < 2:
+            wait = float((json.loads(raw or b"{}") or {}).get("retry_after", 1))
+            if wait > MAX_RETRY_AFTER:
+                raise RuntimeError(f"Discord rate limited for {wait:.0f}s")
+            time.sleep(wait)
+            continue
+        break
+    raw = raw.strip()
+    data = json.loads(raw) if raw else None
     if isinstance(data, dict) and data.get("code") and "message" in data:
         raise RuntimeError(f"Discord API error {data['code']}: {data['message']}")
     return data
