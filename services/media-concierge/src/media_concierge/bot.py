@@ -27,6 +27,11 @@ from .tools import _attach_subs
 MAX_HIST = 40
 IDLE_EVICT = 30 * 60
 POLL_SECS = 45
+# The styled-subs self-heal lists every movie/episode file via Radarr/Sonarr (one
+# request per series): ~280 ms CPU here plus the arrs serving it. Imports don't need
+# 45 s latency for subtitles, so it runs on its own, slower cadence.
+RECONCILE_SECS = 300
+_last_reconcile = 0.0
 TURN_TIMEOUT = 330          # hard ceiling on one agent turn (agent's own cap is 300)
 RESET_WORDS = {"reset", "/reset", "forget", "new chat", "clear", "start over"}
 
@@ -330,10 +335,13 @@ def _reconcile_subs() -> None:
 
 
 def _poll_once() -> None:
-    try:
-        _reconcile_subs()
-    except Exception:  # noqa: BLE001
-        traceback.print_exc()
+    global _last_reconcile
+    if _time.time() - _last_reconcile >= RECONCILE_SECS:
+        _last_reconcile = _time.time()
+        try:
+            _reconcile_subs()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     try:
         qbmonitor.tick(_notify_owner)      # qBittorrent-wide status (all torrents)
     except Exception:  # noqa: BLE001
