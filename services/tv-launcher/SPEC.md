@@ -52,3 +52,36 @@ uv run --no-sync python -m unittest discover -s services/tv-launcher/tests
 6. TV_IP=<tv> node services/tv-launcher/scripts/tv_launch.js launch "$(cat services/tv-launcher/jf_url.txt)" 4 3010
 7. verify: grep jellyfin.html services/tv-launcher/state/http.log | tail   (GET ...v=N)
 ```
+
+## UI captures in the TV's browser (`scripts/ui_capture.py`)
+The TV runs Chromium 72, so modern browsers hide real layout bugs (e.g. flex
+`gap` does not exist there: it silently collapsed the player's control row).
+`ui_capture.py` drives a Chromium 72 snapshot headless at 3840x2160 (the width
+the TV reports, so the pages take their real `zoom` path) with remote keys, and
+writes a 1920x1080 PNG per screen plus `metrics.json` (clipped text, text outside
+the 5% safe area, contrast under 4.5:1).
+
+Setup on vega (one-off; nothing below is committed):
+- Chromium 72.0.3617.0 = snapshot r609904 (the build Puppeteer 1.11.0 pinned):
+  `~/ui-harness/chromium/r609904/chrome-linux/chrome` (from the
+  chromium-browser-snapshots bucket; `--version` verified).
+- `~/ui-harness/jf.env` (mode 600): `JF_SRV`, `JF_U`, `JF_K` from `jf_url.txt`,
+  `SR=http://127.0.0.1:8098`.
+- Copy `scripts/` + `static/` into a work dir and run:
+  ```sh
+  uv run --with websocket-client python scripts/ui_capture.py \
+    --chrome ~/ui-harness/chromium/r609904/chrome-linux/chrome \
+    --env ~/ui-harness/jf.env --out ~/ui-harness/shots/after
+  ```
+API responses are recorded on the first run and replayed after
+(`~/ui-harness/cache`), so before/after captures see identical data. Snapshot
+Chromium can't decode h264: player screens put the item's (or series') backdrop
+behind the controls as a stand-in frame, and the sports autoplay toast
+("All sources failed") is a harness artifact.
+
+2026-10-27 pass (from these captures): player title was the body's navy on video
+(now white on a top scrim, series/season/episode on its own line); control row
+spacing via margins instead of flex `gap`; sports rows are a fixed two-line layout
+(title, detail ellipsized under it) with 14px spacing, one 32px gutter, no
+duplicate "Live" status, `·` separators, league tabs upper-cased, and no
+"BACK returns to schedule" hint.

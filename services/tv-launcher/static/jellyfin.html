@@ -33,16 +33,20 @@ body { background-color:#dfe3ec;
 #spin { position:fixed; top:70px; right:26px; font-size:20px; font-weight:bold; color:#2f6fd0; z-index:6; display:none; }
 /* player */
 #player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
-#player .ptitle { position:absolute; top:18px; left:26px; right:26px; font-size:28px; z-index:12;
-  text-shadow:0 2px 6px #000; font-weight:bold; }
+#player .ptitle { position:absolute; top:0; left:0; right:0; padding:24px 30px 76px; z-index:12;
+  color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.85);
+  background:linear-gradient(#000000e6,#000000a0 45%,#00000000); transition:opacity .3s; }
+#player .ptitle .pk { font-size:20px; color:#d3dbea; margin-bottom:6px; }
+#player .ptitle .pn { font-size:30px; font-weight:bold; line-height:1.25; }
 #player .pctrl { position:absolute; left:0; right:0; bottom:0; padding:20px 30px 26px; z-index:12;
   background:linear-gradient(#00000000,#000000e8 70%); transition:opacity .3s; }
-#player .prow { display:flex; align-items:center; font-size:22px; color:#cde; gap:14px; }
-#ppp { min-width:56px; display:flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:999px;
+#player .prow { display:flex; align-items:center; font-size:22px; color:#dfe6f3; }
+#ppp { min-width:56px; margin-right:18px; display:flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:999px;
   background:linear-gradient(#8fc0ff,#3f83e4); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 2px 6px rgba(0,20,60,.45); }
 #ppp svg { width:24px; height:24px; display:block; fill:#fff; filter:drop-shadow(0 1px 1px rgba(0,20,60,.5)); }
 #pbar { position:relative; flex:1; height:14px; background:#b9c2d4; border-radius:7px; margin:14px 0;
   box-shadow:inset 0 1px 3px rgba(20,30,60,.45); }
+#ptime { margin-left:18px; white-space:nowrap; }
 #pfill { position:absolute; left:0; top:0; bottom:0; width:0; border-radius:7px;
   background:linear-gradient(#8fc0ff,#3f83e4); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 2px rgba(0,30,90,.35); }
 #pbuf { position:absolute; left:0; top:0; bottom:0; width:0; background:#8d97ad; border-radius:7px; }
@@ -140,11 +144,13 @@ function streamUrl(startMs) {
   return u;
 }
 function staticUrl() { return API + "/Videos/" + curItemId + "/stream.mp4?static=true&api_key=" + KEY; }
-function openPlayer(id, name, rtTicks) {
+function openPlayer(id, name, rtTicks, kicker) {
   inPlayer = true; ptitle_txt = name || "";
   curItemId = id; ccCues = null; ccOn = false; subEl.style.display = "none";
   posBase = 0; logicalDur = rtTicks ? Math.floor(rtTicks / 10000) : 0; psid = "web" + Date.now();
-  player.style.display = "block"; ptitle.textContent = ptitle_txt;
+  player.style.display = "block";
+  ptitle.innerHTML = (kicker ? "<div class='pk'>" + esc(kicker) + "</div>" : "") +
+    "<div class='pn'>" + esc(ptitle_txt) + "</div>";
   pfill.style.width = "0%"; ptime.textContent = "0:00";
   showCtrl(false); pMsg("loading…", 0);
   api("/Users/" + UID + "/Items/" + id + "?Fields=MediaSources").then(function (it) {
@@ -403,7 +409,9 @@ function openItem(it) {
   var req;
   if (it.Type === "Movie" || it.Type === "Episode" || it.Type === "Video") {
     spin.style.display = "none"; stack.pop();
-    openPlayer(it.Id, it.SeriesName ? it.SeriesName + " — " + it.Name : it.Name, it.RunTimeTicks); return;
+    openPlayer(it.Id, it.Name, it.RunTimeTicks, it.SeriesName ? it.SeriesName +
+      (it.ParentIndexNumber != null && it.IndexNumber != null ?
+        " · Season " + it.ParentIndexNumber + " · Episode " + it.IndexNumber : "") : ""); return;
   }
   if (it.Type === "Series") req = api("/Shows/" + it.Id + "/Seasons?userId=" + UID + "&Fields=PrimaryImageAspectRatio").then(function (r) {
     r.Items.forEach(function (s) { if (!s.SeriesId) s.SeriesId = it.Id; }); render(r.Items, it.Name); });
