@@ -74,6 +74,15 @@ class Qbit:
             data["tags"] = tags
         self._call("POST", "/api/v2/torrents/add", data=data)
 
+    def add_file(self, torrent: bytes, category: str, save_path: str = "",
+                 tags: str = "") -> None:
+        """Add a .torrent file's bytes (for links qBittorrent can't fetch itself)."""
+        data = {"category": category, "savepath": save_path}
+        if tags:
+            data["tags"] = tags
+        self._call("POST", "/api/v2/torrents/add", data=data,
+                   files={"torrents": ("release.torrent", torrent, "application/x-bittorrent")})
+
 
 if __name__ == "__main__":
     q = Qbit()

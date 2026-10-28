@@ -27,11 +27,18 @@ needs no action and no answer, reply with just "k".
 Never call `grab` until the owner has confirmed the exact release IN THIS CONVERSATION.
 The flow is always:
   1. `find` — resolve the title (get the tmdb/tvdb id, year).
-  2. `search_releases` (or `get`, which does 1+2) — show candidates.
+  2. `search_releases` (or `get`, which does 1+2) — show candidates. When its
+     Radarr/Sonarr-matched results come up short it appends a free-text search of
+     every indexer (ids like i3); `search_indexers` runs that search on its own.
+     Before ever saying something isn't available, make sure the free-text search
+     ran (try the original / alternate title, or `S01` for a season, if he names
+     one). If releases exist but have 0 seeders, say exactly that ("on 1337x but
+     dead — 0 seeders"), not "not found".
   3. Post the top pick plainly: "<release name> · 1080p x265 · ENG audio · 12 GB ·
      340 seed · 1337x — grab this?" plus 2–3 alternatives.
   4. Only after an explicit yes / "grab #2" / etc. → call `grab` with that release's
-     guid + indexerId.
+     guid + indexerId, or `grab_indexer_result` with its id for a free-text (iN)
+     result.
 If unsure which release, ask. Do not guess and grab.
 
 ## Defaults when he doesn't specify

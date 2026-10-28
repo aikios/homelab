@@ -15,9 +15,10 @@ import uuid
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+import httpx
 from anthropic import beta_tool
 
-from . import costmeter, ctx, disk, jobs, organize, subs
+from . import costmeter, ctx, disk, indexer_search, jobs, organize, subs
 from .clients.arr import Radarr, Sonarr
 from .clients.jellyfin import Jellyfin
 from .clients.qbit import Qbit
@@ -152,7 +153,8 @@ def _release_line(r: dict) -> str:
 @beta_tool
 def search_releases(title: str, kind: str, want_resolution: str = "1080p",
                     want_audio: str = "en", season: int | None = None,
-                    episode: int | None = None, limit: int = 8) -> str:
+                    episode: int | None = None, limit: int = 8,
+                    year: int | None = None) -> str:
     """Search indexers (incl. 1337x via Prowlarr) for downloadable releases. READ-ONLY.
 
     Adds the title to Radarr/Sonarr *unmonitored, no auto-search* so their parser can
@@ -166,19 +168,26 @@ def search_releases(title: str, kind: str, want_resolution: str = "1080p",
         want_audio: ISO language for audio, e.g. "en".
         season / episode: for shows.
         limit: max candidates to return.
+        year: release year, to pick the right title when several share a name.
+
+    When this route has nothing live at the wanted resolution, a free-text search of
+    every indexer (title + year + original/alternate titles) is appended; those
+    results have ids like i3 and are grabbed with `grab_indexer_result`.
     """
     profile = {"2160p": "Ultra-HD", "1080p": "HD-1080p", "720p": "HD-720p"}.get(
         want_resolution, "HD-1080p")
     if kind == "movie":
         r = Radarr()
-        hit = next((h for h in r.lookup(title) if h["title"].lower() == title.lower()),
-                   r.lookup(title)[0])
+        hit, exact = indexer_search.pick_hit(r.lookup(title), title, year)
+        if not hit:
+            return f"no movie called {title!r} in the metadata lookup."
         m = r.add(hit["tmdbId"], quality=profile, monitored=False, search=False)
         rels = r.releases(m["id"])
     else:
         s = Sonarr()
-        hit = next((h for h in s.lookup(title) if h["title"].lower() == title.lower()),
-                   s.lookup(title)[0])
+        hit, exact = indexer_search.pick_hit(s.lookup(title), title, year)
+        if not hit:
+            return f"no show called {title!r} in the metadata lookup."
         sr = s.add(hit["tvdbId"], quality=profile, monitored=False, search=False,
                    season=season)
         ep_id = None
@@ -197,11 +206,24 @@ def search_releases(title: str, kind: str, want_resolution: str = "1080p",
         return (not res_ok, not aud_ok, bool(x.get("rejections")), -x.get("seeders", 0))
 
     rels = sorted(rels, key=score)[:limit]
-    if not rels:
-        return f"no releases found for {title!r} at {want_resolution}."
-    return (f"Candidates for {title} ({want_resolution}, {want_audio} audio) — "
-            f"confirm which to grab:\n\n" +
-            "\n\n".join(f"[{i+1}] " + _release_line(r) for i, r in enumerate(rels)))
+    assumed = "" if exact else f"(no exact title match; assumed {hit['title']} ({hit.get('year', '?')}))\n"
+    usable = [x for x in rels if not x.get("rejections") and (x.get("seeders") or 0) > 0
+              and str(((x.get("quality") or {}).get("quality") or {}).get("resolution")) in want_resolution]
+    out = assumed
+    if rels:
+        out += (f"Candidates for {hit['title']} ({want_resolution}, {want_audio} audio) — "
+                f"confirm which to grab:\n\n" +
+                "\n\n".join(f"[{i+1}] " + _release_line(r) for i, r in enumerate(rels)))
+    else:
+        out += f"Radarr/Sonarr-matched search: nothing for {hit['title']!r} at {want_resolution}."
+    if not usable:  # the arr route came up short: search every indexer by name
+        try:
+            free, names, _ = indexer_search.search(hit["title"], kind, year or hit.get("year"),
+                                                   season, want_resolution)
+            out += "\n\n" + indexer_search.render(free, names, limit)
+        except Exception as e:  # noqa: BLE001 — the arr results above still stand
+            out += f"\n\n(free-text search failed: {e})"
+    return out
 
 
 @beta_tool
@@ -220,6 +242,69 @@ def get(title: str, kind: str = "auto", quality: str = "1080p", audio: str = "en
     return (f"{resolved}\n\n{cands}\n\n"
             f"(defaults: {quality}, {audio} audio, {subs_lang} subs {subs_mode}) — "
             f"reply which number to grab.")
+
+
+@beta_tool
+def search_indexers(title: str, kind: str = "auto", year: int | None = None,
+                    season: int | None = None, want_resolution: str = "1080p",
+                    limit: int = 8) -> str:
+    """Free-text search across EVERY indexer (Prowlarr), the way he'd search the site
+    by hand: the title plus its year, original and alternate titles (romaji, regional
+    names), and `S01` / `Season 1` for shows. Finds releases the Radarr/Sonarr-matched
+    `search_releases` misses (alternate naming, odd packs). READ-ONLY.
+
+    Results get ids like i3; after he confirms one, call `grab_indexer_result`.
+    0-seeder releases are listed as DEAD: report "it exists but nobody is seeding",
+    never "not found", when that's the situation.
+
+    Args:
+        title: what to look for (canonical or as he said it).
+        kind: "movie", "show", or "auto" (show when a season is given).
+        year: release year (sharpens movies with common names).
+        season: for shows.
+        want_resolution: ranked first: "2160p" | "1080p" | "720p".
+        limit: max results to list.
+    """
+    k = kind if kind != "auto" else ("show" if season is not None else "movie")
+    rels, names, _ = indexer_search.search(title, k, year, season, want_resolution)
+    return indexer_search.render(rels, names, limit)
+
+
+def _prowlarr_fetch(url: str) -> httpx.Response:
+    return httpx.get(url, headers={"X-Api-Key": CFG.prowlarr_key}, timeout=60.0,
+                     follow_redirects=False)
+
+
+@beta_tool
+def grab_indexer_result(result_id: str, kind: str = "auto", title_hint: str | None = None,
+                        subs_lang: str = "en", subs_mode: str = "soft") -> str:
+    """Download a `search_indexers` / `search_releases` free-text result (id like i3)
+    and FULL-import it, exactly like `add_magnet` (download -> identify -> file ->
+    styled subs -> scan). THE GRAB GATE APPLIES: only after he confirmed this release.
+
+    Args:
+        result_id: the id from the search output, e.g. "i3".
+        kind: "movie", "show", or "auto".
+        title_hint: override the parsed title only if the release name is junk.
+        subs_lang / subs_mode: as for add_magnet.
+    """
+    r = indexer_search.recall(result_id)
+    if not r:
+        return f"no search result {result_id!r} (they expire after 6h) — search again."
+    try:
+        how, src = indexer_search.source_for(r, _prowlarr_fetch)
+    except (ValueError, httpx.HTTPError) as e:
+        return f"couldn't get a download for {r.get('title', result_id)}: {e}"
+    label = title_hint or r.get("title") or result_id
+    if how == "magnet":
+        ih, _ = _magnet_info(src)
+        return _start_manual(lambda q, tag: q.add_url(src, category=MANUAL_CATEGORY,
+                                                     save_path=CFG.media_downloads, tags=tag),
+                             label, ih, kind, title_hint, subs_lang, subs_mode, source="indexer")
+    return _start_manual(lambda q, tag: q.add_file(src, category=MANUAL_CATEGORY,
+                                                  save_path=CFG.media_downloads, tags=tag),
+                         label, (r.get("infoHash") or "").lower() or None, kind, title_hint,
+                         subs_lang, subs_mode, source="indexer")
 
 
 # ─────────────────────────────  MUTATE  ─────────────────────────────
@@ -272,15 +357,24 @@ def add_magnet(magnet: str, title_hint: str | None = None, kind: str = "auto",
     ih, dn = (None, None) if is_url else _magnet_info(magnet)
     if not is_url and not ih:
         return "couldn't parse an infohash out of that magnet."
+    label = title_hint or dn or (ih[:12] if ih else "torrent")
+    return _start_manual(lambda q, tag: q.add_url(magnet, category=MANUAL_CATEGORY,
+                                                 save_path=CFG.media_downloads, tags=tag),
+                         label, ih, kind, title_hint, subs_lang, subs_mode, source="magnet")
+
+
+def _start_manual(add, label: str, ih: str | None, kind: str, title_hint: str | None,
+                  subs_lang: str, subs_mode: str, source: str) -> str:
+    """Hand a torrent to qBittorrent under a job tag; the poller then downloads,
+    identifies, files it into the library, adds subs and scans (the "magnet" job)."""
     tag = "mb-" + uuid.uuid4().hex[:8]
     q = Qbit()
     q.add_category(MANUAL_CATEGORY, CFG.media_downloads)
-    q.add_url(magnet, category=MANUAL_CATEGORY, save_path=CFG.media_downloads, tags=tag)
-    label = title_hint or dn or (ih[:12] if ih else "torrent")
+    add(q, tag)
     j = jobs.create("magnet", label, ctx.channel_id(), tag=tag, infohash=ih,
                     media_kind=kind, title_hint=title_hint, subs_lang=subs_lang,
                     subs_mode=subs_mode)
-    _log("add_magnet", infohash=ih, tag=tag, label=label, kind=kind, job=j.id)
+    _log("add_magnet", infohash=ih, tag=tag, label=label, kind=kind, job=j.id, source=source)
     return (f"Added **{label}** -> qBittorrent (job {j.id}). I'll download it, file it "
             f"into the library with {subs_lang} subs, and post here when it's in Jellyfin.")
 
@@ -569,7 +663,7 @@ def empty_trash(older_than_days: int | None = None, dry_run: bool = False) -> st
 
 
 ALL_TOOLS = [
-    library_report, queue_status, disk_report, find, search_releases, get,
-    grab, add_magnet, import_file, attach_subs, reclaim_space, jellyfin_scan, remove,
+    library_report, queue_status, disk_report, find, search_releases, search_indexers, get,
+    grab, grab_indexer_result, add_magnet, import_file, attach_subs, reclaim_space, jellyfin_scan, remove,
     empty_trash, job_status, cost_status, set_credit, run_shell,
 ]
