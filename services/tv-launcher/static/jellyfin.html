@@ -42,8 +42,15 @@ body { background-color:#dfe3ec;
   text-overflow:ellipsis; }
 .ep .ed { font-size:16px; line-height:1.35; color:#5f6a85; margin-top:5px; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.ep .eth { width:176px; height:99px; flex:none; border-radius:12px; object-fit:cover; background:#b9c2d4;
-  margin-right:20px; box-shadow:0 1px 4px rgba(20,30,60,.35); }
+.ep .thw { position:relative; flex:none; margin-right:20px; }
+.ep .eth { width:176px; height:99px; display:block; border-radius:12px; object-fit:cover; background:#b9c2d4;
+  box-shadow:0 1px 4px rgba(20,30,60,.35); }
+/* watched-so-far bar (Jellyfin resume position) on episode thumbs and posters */
+.prog { position:absolute; left:8px; right:8px; bottom:7px; height:5px; border-radius:3px;
+  background:rgba(0,0,0,.5); overflow:hidden; }
+.prog div { height:100%; background:#3f83e4; }
+.card .prog { left:10px; right:10px; bottom:10px; height:6px; z-index:2; }
+.ep .wd { color:#2e8b2e; font-weight:bold; }
 #spin { position:fixed; top:70px; right:26px; font-size:20px; font-weight:bold; color:#2f6fd0; z-index:6; display:none; }
 /* player */
 #player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
@@ -64,6 +71,14 @@ body { background-color:#dfe3ec;
 #pfill { position:absolute; left:0; top:0; bottom:0; width:0; border-radius:7px;
   background:linear-gradient(#8fc0ff,#3f83e4); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 2px rgba(0,30,90,.35); }
 #pbuf { position:absolute; left:0; top:0; bottom:0; width:0; background:#8d97ad; border-radius:7px; }
+#resume { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:14; display:none;
+  padding:22px; border-radius:16px; background:linear-gradient(#eef1f8,#c9d0e0);
+  box-shadow:0 8px 30px rgba(0,10,40,.5), inset 0 1px 0 #fff; }
+#resume .rb { min-width:340px; margin:6px 0; padding:14px 28px; border-radius:999px; font-size:24px;
+  font-weight:bold; text-align:center; color:#41507a; background:linear-gradient(#f4f6fb,#ccd2e2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 1px 3px rgba(20,30,60,.3); }
+#resume .rb.sel { color:#fff; background:linear-gradient(#8fc0ff,#3f83e4);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 2px 6px rgba(0,20,60,.4); }
 #pstate { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); font-size:30px; font-weight:bold;
   color:#1d2740; background:linear-gradient(#eef1f8,#c9d0e0); padding:18px 34px; border-radius:12px;
   box-shadow:0 8px 30px rgba(0,10,40,.5), inset 0 1px 0 #fff; z-index:13; display:none; }
@@ -83,6 +98,7 @@ body { background-color:#dfe3ec;
     <span id="ppp"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg></span><div id="pbar"><div id="pbuf"></div><div id="pfill"></div></div>
     <span id="ptime">0:00</span></div></div>
   <div id="pstate">…</div>
+  <div id="resume"><div class="rb sel" id="rbResume"></div><div class="rb" id="rbStart">Start over</div></div>
 </div>
 <script>
 var m = location.search.match(/srv=([^&]+)/);
@@ -97,6 +113,8 @@ var grid = document.getElementById("grid"), topbar = document.getElementById("to
     pbuf = document.getElementById("pbuf"), ptime = document.getElementById("ptime"),
     ppp = document.getElementById("ppp"), pstate = document.getElementById("pstate");
 var items = [], sel = 0, stack = [], inPlayer = false, ptitle_txt = "", ctrlTimer = null;
+var curItem = null, playStarted = false, lastSave = 0;
+var resumeOpen = false, resumeSel = 0, resumeAt = 0, resumeBox = document.getElementById("resume");
 
 function api(path) {
   spin.style.display = "block";
@@ -105,6 +123,12 @@ function api(path) {
     if (!r.ok) throw new Error("HTTP " + r.status + " " + path);
     return r.json();
   }).catch(function (e) { spin.style.display = "none"; throw e; });
+}
+function resumeMs(it) { var u = it && it.UserData; return u && u.PlaybackPositionTicks ? Math.floor(u.PlaybackPositionTicks / 10000) : 0; }
+function progBar(it) {
+  var u = it.UserData || {}, pct = u.PlayedPercentage ||
+    (u.PlaybackPositionTicks && it.RunTimeTicks ? u.PlaybackPositionTicks / it.RunTimeTicks * 100 : 0);
+  return pct > 0 && !u.Played ? "<div class='prog'><div style='width:" + Math.min(100, pct).toFixed(1) + "%'></div></div>" : "";
 }
 function thumb(id) { return API + "/Items/" + id + "/Images/Primary?fillWidth=448&fillHeight=252&quality=90&api_key=" + KEY; }
 function img(id, kind) { return API + "/Items/" + id + "/Images/" + (kind || "Primary") + "?fillHeight=720&fillWidth=480&quality=90&api_key=" + KEY; }
@@ -124,12 +148,15 @@ function draw() {
     if (list) {
       var meta = [it.RunTimeTicks ? Math.round(it.RunTimeTicks / 6e8) + " min" : "", it.Overview || ""]
         .filter(function (x) { return x; }).join(" \u00b7 ");
+      var watched = it.UserData && it.UserData.Played;
       return "<div class='ep" + (i === sel ? " sel" : "") + "' i='" + i + "'>" +
-        "<img class='eth' src='" + thumb(it.Id) + "' onerror=\"this.removeAttribute('src')\">" +
+        "<div class='thw'><img class='eth' src='" + thumb(it.Id) + "' onerror=\"this.removeAttribute('src')\">" +
+        progBar(it) + "</div>" +
         "<div class='em'><div class='et'>" +
         (it.IndexNumber != null ? "<span class='en'>" + it.IndexNumber + "</span>" : "") +
         esc(it.Name || "") + "</div>" +
-        "<div class='ed'>" + esc(meta) + "</div></div></div>";
+        "<div class='ed'>" + (watched ? "<span class='wd'>Watched</span> \u00b7 " : "") + esc(meta) +
+        "</div></div></div>";
     }
     var c = "card " + (i === sel ? "sel" : "");
     if (home) {
@@ -141,7 +168,7 @@ function draw() {
     return "<div class='" + c + "' i='" + i + "'>" +
       "<div style='padding-top:150%'></div>" +
       "<img src='" + img(it.Id) + "' onerror=\"this.src='';this.style.background='#b9c2d4'\">" +
-      "<div class='nm'>" + esc(it.Name || it.SeriesName || "") + "</div></div>";
+      progBar(it) + "<div class='nm'>" + esc(it.Name || it.SeriesName || "") + "</div></div>";
   }).join("");
   var cur = grid.children[sel];
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
@@ -196,18 +223,66 @@ function openPlayer(id, name, rtTicks, kicker) {
     var v = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Video"; })[0];
     var a = (ms.MediaStreams || []).filter(function (s) { return s.Type === "Audio"; })[0];
     if (v && a && /mp4/i.test(ms.Container || "") && /h264/i.test(v.Codec || "") && /aac/i.test(a.Codec || "")) dp = true;
-    video.src = dp ? staticUrl() : streamUrl(0);
-    video.play().then(function () { pstate.style.display = "none"; showCtrl(true); })
-      .catch(function (e) { pMsg("play error: " + e.message, 6000); });
+    // resume like stock Jellyfin: offer the saved position (not when it's at the very end)
+    var rp = resumeMs(it);
+    if (rp > 0 && (!logicalDur || rp < logicalDur - 10000)) askResume(rp);
+    else startAt(0);
   }).catch(function (e) { pMsg("load error: " + e.message, 6000); });
 }
-function closePlayer() { inPlayer = false; player.style.display = "none"; video.pause();
-  video.removeAttribute("src"); try { video.load(); } catch (e) { } showCtrl(false); }
+function startAt(ms) {
+  resumeOpen = false; resumeBox.style.display = "none"; pMsg("loading…", 0);
+  if (dp) {
+    video.src = staticUrl();
+    if (ms) video.addEventListener("loadedmetadata", function seekOnce() {
+      video.removeEventListener("loadedmetadata", seekOnce);
+      try { video.currentTime = ms / 1000; } catch (e) { }
+    });
+  } else { posBase = ms; video.src = streamUrl(ms); }
+  if (ms && logicalDur) { pfill.style.width = (ms / logicalDur * 100) + "%"; ptime.textContent = fmt(ms / 1000) + " / " + fmt(logicalDur / 1000); }
+  video.play().then(function () { pstate.style.display = "none"; showCtrl(true); })
+    .catch(function (e) { pMsg("play error: " + e.message, 6000); });
+}
+function askResume(ms) {
+  resumeAt = ms; resumeOpen = true; resumeSel = 0; pstate.style.display = "none";
+  document.getElementById("rbResume").textContent = "Resume from " + fmt(ms / 1000);
+  drawResume(); resumeBox.style.display = "block";
+}
+function drawResume() {
+  document.getElementById("rbResume").className = "rb" + (resumeSel === 0 ? " sel" : "");
+  document.getElementById("rbStart").className = "rb" + (resumeSel === 1 ? " sel" : "");
+}
+/* progress -> Jellyfin UserData (what stock clients resume from). Stock thresholds:
+   under 5% is not worth resuming; past 90% counts as watched. Only after playback
+   really started, so a failed load never wipes an existing resume point. */
+function saveProgress(final) {
+  if (!curItemId || !playStarted) return;
+  var pos = logicalPos(), body;
+  if (pos <= 0) return;
+  var pct = logicalDur ? pos / logicalDur : 0;
+  if (logicalDur && pct >= 0.9) body = { PlaybackPositionTicks: 0, Played: true };
+  else if (logicalDur && pct < 0.05) body = { PlaybackPositionTicks: 0 };
+  else body = { PlaybackPositionTicks: Math.floor(pos) * 10000 };
+  lastSave = Date.now();
+  if (curItem && curItem.Id === curItemId) {  // keep the list's bar in step without a refetch
+    var u = curItem.UserData = curItem.UserData || {};
+    u.PlaybackPositionTicks = body.PlaybackPositionTicks; u.PlayedPercentage = body.Played ? 0 : pct * 100;
+    if (body.Played) u.Played = true;
+  }
+  try {
+    fetch(API + "/UserItems/" + curItemId + "/UserData?userId=" + UID, { method: "POST", keepalive: !!final,
+      headers: { "X-Emby-Token": KEY, "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .catch(function () { });
+  } catch (e) { }
+}
+function closePlayer() { saveProgress(true); inPlayer = false; playStarted = false; resumeOpen = false;
+  resumeBox.style.display = "none"; player.style.display = "none"; video.pause();
+  video.removeAttribute("src"); try { video.load(); } catch (e) { } showCtrl(false);
+  if (stack.length) draw(); }  // refresh progress bars / watched marks
 var ICON_PAUSE = ppp.innerHTML,
     ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
 // icon follows the element state, so it is right after reopen/seek/stall too
 video.addEventListener("play", function () { ppp.innerHTML = ICON_PAUSE; });
-video.addEventListener("pause", function () { ppp.innerHTML = ICON_PLAY; });
+video.addEventListener("pause", function () { ppp.innerHTML = ICON_PLAY; if (inPlayer) saveProgress(false); });
 function togglePause() { if (video.paused) video.play(); else video.pause(); showCtrl(true); }
 function seek(delta) {
   var target = Math.max(0, logicalPos() + delta * 1000);
@@ -229,12 +304,16 @@ video.addEventListener("timeupdate", function () {
   var p = logicalPos();
   pfill.style.width = (logicalDur ? p / logicalDur * 100 : 0) + "%";
   ptime.textContent = fmt(p / 1000) + (logicalDur ? " / " + fmt(logicalDur / 1000) : "");
+  if (playStarted && Date.now() - lastSave > 10000) saveProgress(false);
 });
 video.addEventListener("progress", function () {
   try { if (video.buffered.length && video.duration) pbuf.style.width = (video.buffered.end(video.buffered.length - 1) / video.duration * 100) + "%"; } catch (e) { }
 });
 video.addEventListener("waiting", function () { pMsg("buffering…", 0); });
-video.addEventListener("playing", function () { pstate.style.display = "none"; });
+video.addEventListener("playing", function () { pstate.style.display = "none"; if (inPlayer) playStarted = true; });
+// leaving the app (Home / power) mid-episode still records where it got to
+window.addEventListener("pagehide", function () { if (inPlayer) saveProgress(true); });
+document.addEventListener("visibilitychange", function () { if (document.hidden && inPlayer) saveProgress(true); });
 video.addEventListener("ended", function () { closePlayer(); });
 
 /* ---------------- subtitles (JS-rendered sidecar SRT/VTT) ---------------- */
@@ -436,15 +515,16 @@ function openItem(it) {
   var req;
   if (it.Type === "Movie" || it.Type === "Episode" || it.Type === "Video") {
     spin.style.display = "none"; stack.pop();
+    curItem = it;
     openPlayer(it.Id, it.Name, it.RunTimeTicks, it.SeriesName ? it.SeriesName +
       (it.ParentIndexNumber != null && it.IndexNumber != null ?
         " · Season " + it.ParentIndexNumber + " · Episode " + it.IndexNumber : "") : ""); return;
   }
   if (it.Type === "Series") req = api("/Shows/" + it.Id + "/Seasons?userId=" + UID + "&Fields=PrimaryImageAspectRatio").then(function (r) {
     r.Items.forEach(function (s) { if (!s.SeriesId) s.SeriesId = it.Id; }); render(r.Items, it.Name); });
-  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID + "&Fields=Overview").then(function (r) {
+  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID + "&Fields=Overview&enableUserData=true").then(function (r) {
     render(r.Items, (it.SeriesName ? it.SeriesName + " — " : "") + it.Name); });
-  else req = api("/Users/" + UID + "/Items?ParentId=" + it.Id + "&SortBy=SortName&Recursive=" +
+  else req = api("/Users/" + UID + "/Items?ParentId=" + it.Id + "&SortBy=SortName&enableUserData=true&Recursive=" +
     (it.CollectionType === "movies" ? "true" : "false")).then(function (r) {
       r.Items = r.Items.filter(function (x) { return x.Type !== "Folder" && x.Type !== "CollectionFolder"; });
       render(r.Items, it.Name); });
@@ -457,6 +537,12 @@ function back() {
   items = p.items; sel = p.sel; topbar.textContent = p.title; draw();
 }
 document.addEventListener("keydown", function (e) {
+  if (inPlayer && resumeOpen) {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") { resumeSel = 1 - resumeSel; drawResume(); }
+    else if (e.key === "Enter" || e.key === "MediaPlayPause") startAt(resumeSel === 0 ? resumeAt : 0);
+    else if (e.key === "GoBack" || e.key === "Escape" || e.key === "Backspace" || e.key === "BrowserBack") closePlayer();
+    e.preventDefault(); return;
+  }
   if (inPlayer) {
     if (e.key === "Enter" || e.key === "MediaPlayPause") togglePause();
     else if (e.key === "ArrowLeft") seek(-10);

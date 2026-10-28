@@ -85,3 +85,14 @@ spacing via margins instead of flex `gap`; sports rows are a fixed two-line layo
 (title, detail ellipsized under it) with 14px spacing, one 32px gutter, no
 duplicate "Live" status, `·` separators, league tabs upper-cased, and no
 "BACK returns to schedule" hint.
+
+## Playback progress (resume)
+The player writes the position to the user's Jellyfin UserData
+(`POST /UserItems/{id}/UserData?userId=`, body `PlaybackPositionTicks` / `Played`;
+works with the client's API key on 10.11.6) every ~10 s while playing, on pause,
+on close and on app exit (`keepalive` fetch). Stock thresholds: < 5 % is saved as
+0 (not resumable), >= 90 % sets `Played` and clears the position. Nothing is
+written before the `playing` event, so a failed load never clobbers a resume
+point. Opening an item with a saved position shows a Resume / Start over chooser
+(Resume focused). Lists show a progress bar (episode thumbs, movie posters) and
+"Watched" on finished episodes (`enableUserData=true` on the list queries).
