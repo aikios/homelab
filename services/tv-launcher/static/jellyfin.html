@@ -30,6 +30,20 @@ body { background-color:#dfe3ec;
   -webkit-box-orient:vertical; overflow:hidden; opacity:0; transition:opacity .15s; }
 .card.sel .nm { opacity:1; }
 .card.sel { box-shadow:0 0 0 4px rgba(63,131,228,.85), 0 0 18px rgba(63,131,228,.55), 0 3px 10px rgba(20,30,60,.28); }
+/* episodes: wide card rows (16:9 thumb on the left; number + title, then runtime + overview) */
+.ep { width:100%; margin:0 0 12px; display:flex; align-items:center; padding:10px 24px 10px 10px;
+  border-radius:12px; outline:none; background:linear-gradient(#f4f6fb,#d4d9e6);
+  border:1px solid rgba(120,130,160,.45); scroll-snap-align:start;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 2px 6px rgba(20,30,60,.2); }
+.ep.sel { box-shadow:0 0 0 4px rgba(63,131,228,.85), 0 0 18px rgba(63,131,228,.5); }
+.ep .en { color:#3f83e4; margin-right:12px; }
+.ep .em { flex:1; min-width:0; }
+.ep .et { font-size:23px; font-weight:bold; color:#1d2740; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.ep .ed { font-size:16px; line-height:1.35; color:#5f6a85; margin-top:5px; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.ep .eth { width:176px; height:99px; flex:none; border-radius:12px; object-fit:cover; background:#b9c2d4;
+  margin-right:20px; box-shadow:0 1px 4px rgba(20,30,60,.35); }
 #spin { position:fixed; top:70px; right:26px; font-size:20px; font-weight:bold; color:#2f6fd0; z-index:6; display:none; }
 /* player */
 #player { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; z-index:10; display:none; }
@@ -92,6 +106,7 @@ function api(path) {
     return r.json();
   }).catch(function (e) { spin.style.display = "none"; throw e; });
 }
+function thumb(id) { return API + "/Items/" + id + "/Images/Primary?fillWidth=448&fillHeight=252&quality=90&api_key=" + KEY; }
 function img(id, kind) { return API + "/Items/" + id + "/Images/" + (kind || "Primary") + "?fillHeight=720&fillWidth=480&quality=90&api_key=" + KEY; }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function fmt(s) { s = Math.max(0, Math.floor(s || 0)); var h = Math.floor(s / 3600), mn = Math.floor(s % 3600 / 60), sec = s % 60;
@@ -99,11 +114,23 @@ function fmt(s) { s = Math.max(0, Math.floor(s || 0)); var h = Math.floor(s / 36
 
 function draw() {
   var home = !stack.length;
+  var list = !home && items.length > 0 && items.every(function (x) { return x.Type === "Episode"; });
   topbar.style.display = home ? "none" : "block";
   grid.style.top = home ? "0" : "64px";
   grid.style.justifyContent = home ? "center" : "flex-start";
   grid.style.alignContent = home ? "center" : "flex-start";
+  grid.style.padding = list ? "20px 32px" : "";
   grid.innerHTML = items.map(function (it, i) {
+    if (list) {
+      var meta = [it.RunTimeTicks ? Math.round(it.RunTimeTicks / 6e8) + " min" : "", it.Overview || ""]
+        .filter(function (x) { return x; }).join(" \u00b7 ");
+      return "<div class='ep" + (i === sel ? " sel" : "") + "' i='" + i + "'>" +
+        "<img class='eth' src='" + thumb(it.Id) + "' onerror=\"this.removeAttribute('src')\">" +
+        "<div class='em'><div class='et'>" +
+        (it.IndexNumber != null ? "<span class='en'>" + it.IndexNumber + "</span>" : "") +
+        esc(it.Name || "") + "</div>" +
+        "<div class='ed'>" + esc(meta) + "</div></div></div>";
+    }
     var c = "card " + (i === sel ? "sel" : "");
     if (home) {
       return "<div class='" + c + "' i='" + i + "' style='width:24%;margin:1%'>" +
@@ -415,7 +442,7 @@ function openItem(it) {
   }
   if (it.Type === "Series") req = api("/Shows/" + it.Id + "/Seasons?userId=" + UID + "&Fields=PrimaryImageAspectRatio").then(function (r) {
     r.Items.forEach(function (s) { if (!s.SeriesId) s.SeriesId = it.Id; }); render(r.Items, it.Name); });
-  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID).then(function (r) { render(r.Items, it.Name); });
+  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID + "&Fields=Overview").then(function (r) { render(r.Items, it.Name); });
   else req = api("/Users/" + UID + "/Items?ParentId=" + it.Id + "&SortBy=SortName&Recursive=" +
     (it.CollectionType === "movies" ? "true" : "false")).then(function (r) {
       r.Items = r.Items.filter(function (x) { return x.Type !== "Folder" && x.Type !== "CollectionFolder"; });
@@ -451,7 +478,7 @@ document.addEventListener("keydown", function (e) {
   else if (e.key === "GoBack" || e.key === "Escape" || e.key === "Backspace" || e.key === "BrowserBack") back();
 });
 grid.addEventListener("click", function (e) {
-  var c = e.target.closest ? e.target.closest(".card") : null;
+  var c = e.target.closest ? e.target.closest(".card, .ep") : null;
   if (c) { sel = +c.getAttribute("i"); draw(); openItem(items[sel]); }
 });
 
