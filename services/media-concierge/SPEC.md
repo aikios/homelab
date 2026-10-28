@@ -308,3 +308,19 @@ subtitles always live beside the video:
 - Only this video's own sidecars are candidates (other subs in the folder only when
   the video is alone there), so season folders don't cross-wire episodes.
 - Online-fetch intermediates (`.srt`, `.synced.srt`) are deleted once styled.
+
+## Search: arr-matched first, free-text safety net (2026-10-28)
+`search_releases` asks Radarr/Sonarr, which only return releases their parser ties
+to the exact title they searched. Whenever that has nothing live at the wanted
+resolution it appends `indexer_search` results: Prowlarr free text over every
+indexer with the title, title + year, original + alternate titles (only from a
+lookup hit whose names contain the query), and `S01` / `Season N` for shows;
+releases must name the title (other-year namesakes and wrong seasons dropped);
+ranked live > real season packs (shows) > wanted resolution > seeders; 0-seeder
+releases are shown as DEAD so the bot says "exists but dead", not "not found".
+Results carry short ids (`i3`); `grab_indexer_result` (grab gate applies) resolves
+a Prowlarr link to a magnet or .torrent (falling back to the info-hash) and runs
+the same download -> import -> subs path as `add_magnet`. `search_indexers` runs
+the free-text search alone. Tests: `tests/test_indexer_search.py`.
+
+The owner DM has one reader since news-notifier was removed (2026-10-28): this bot.
