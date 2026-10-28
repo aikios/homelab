@@ -1,12 +1,12 @@
 """Discord delivery for homelab services.
 
-Consolidated from the news-notifier / rain-notifier pattern:
+Shared by the notifier services (rain-notifier, media-transcoder's notify):
 
 - the bot token only ever lives in this process (an in-memory request header),
   never on argv or in an env var that shows up in ``ps`` / ``systemctl status``;
-- requests reuse one keep-alive HTTPS connection per thread. news-notifier polls
-  every 2s; a fresh ``curl`` + TLS handshake per poll measured 180 ms CPU (~9% of
-  a core around the clock) vs 4.6 ms on a reused connection (2026-10-27);
+- requests reuse one keep-alive HTTPS connection per thread (a fresh ``curl`` +
+  TLS handshake per request measured 180 ms CPU vs 4.6 ms on a reused connection,
+  2026-10-27, back when a 2 s DM poller ran on it);
 - requests carry an explicit ``User-Agent`` because Discord's REST API sits
   behind Cloudflare and blocks bare clients with HTTP 403 ``error code: 1010``.
 
@@ -14,12 +14,10 @@ All services historically share one bot token (read live from the shared
 ``.env`` via :func:`homelab_core.config.shared_env`) so DMs arrive from the same
 bot the owner already talks to.
 
-Both services' private ``_discord()`` helpers are reconciled here: rain-notifier
-only ever sends a one-shot DM (:func:`send_discord_dm`), while news-notifier also
-needs to open the DM channel once and reuse it, send to a known channel, and
-*read* the channel back for owner commands — hence the channel-level primitives
-(:func:`open_dm_channel`, :func:`send_channel_message`,
-:func:`fetch_channel_messages`).
+One-shot DMs use :func:`send_discord_dm`; :class:`homelab_core.ui.Discord` keeps
+the DM channel open for a long-lived sender (:func:`open_dm_channel`,
+:func:`send_channel_message`). Reading the channel back is media-concierge's job
+(discord.py Gateway); nothing here polls it.
 """
 from __future__ import annotations
 
@@ -102,22 +100,6 @@ def send_channel_message(token: str, channel_id: str, content: str) -> dict:
     """Post ``content`` to a known channel, truncated to Discord's 2000-char limit."""
     return _request("POST", f"{API}/channels/{channel_id}/messages", token,
                     {"content": content[:MAX_MESSAGE_CHARS]})
-
-
-def fetch_channel_messages(token: str, channel_id: str, after: str | None = None,
-                           limit: int = 100) -> list[dict]:
-    """Return messages in a channel, oldest-first.
-
-    Discord returns newest-first; callers paging a DM for new owner commands want
-    chronological order, so sort by the snowflake id here. ``after`` limits the
-    result to messages newer than that id.
-    """
-    path = f"{API}/channels/{channel_id}/messages?limit={limit}"
-    if after:
-        path += f"&after={after}"
-    data = _request("GET", path, token)
-    messages = data if isinstance(data, list) else []
-    return sorted(messages, key=lambda m: int(m["id"]))
 
 
 def send_discord_dm(message: str, *, token: str | None = None,

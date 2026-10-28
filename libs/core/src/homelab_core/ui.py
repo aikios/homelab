@@ -2,16 +2,15 @@
 
 Two transports talk to the same owner over the same bot:
 
-* **REST-over-curl** (:class:`Discord`), stdlib-only — used by the notifier
-  services (rain-notifier, news-notifier). Lightweight: send, plus poll for inbound.
+* **REST** (:class:`Discord`), stdlib-only — used by the notifier services
+  (rain-notifier, media-transcoder's notify). Outbound only.
 * a **discord.py Gateway bot** (media-concierge) — event-driven, with attachments,
   typing indicators, etc.
 
 :class:`Messenger` is the small *outbound* contract both share: deliver a line to
 the owner's DM, or to a given channel. Services program against ``Messenger`` so
-the transport is swappable. Inbound differs per transport — the REST client polls
-(:meth:`Discord.fetch`); the Gateway bot receives events — so inbound is not part
-of the shared contract.
+the transport is swappable. Inbound (the owner's messages) is media-concierge's
+alone, via Gateway events, so it is not part of the shared contract.
 
 media-concierge's discord.py client is intentionally *not* modified to go through this:
 its inbound event loop isn't expressible as ``Messenger``, and rewriting the live
@@ -24,7 +23,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from .config import require, shared_env
-from .notify import fetch_channel_messages, open_dm_channel, send_channel_message
+from .notify import open_dm_channel, send_channel_message
 
 
 @runtime_checkable
@@ -36,11 +35,10 @@ class Messenger(Protocol):
 
 
 class Discord:
-    """REST (curl) Discord client for notifier services — stdlib only.
+    """REST Discord client for notifier services — stdlib only, outbound only.
 
-    Opens the owner DM channel lazily and caches it, so a resident poll loop does
-    one channel lookup for its lifetime instead of one per message. Implements
-    :class:`Messenger`.
+    Opens the owner DM channel lazily and caches it, so a sender does one channel
+    lookup for its lifetime instead of one per message. Implements :class:`Messenger`.
     """
 
     def __init__(self, token: str, owner_id: str) -> None:
@@ -73,7 +71,3 @@ class Discord:
 
     def send(self, channel_id: str, text: str) -> None:
         send_channel_message(self._token, channel_id, text)
-
-    def fetch(self, channel_id: str, after: str | None = None) -> list[dict]:
-        """Inbound (REST-only): messages in ``channel_id``, oldest-first."""
-        return fetch_channel_messages(self._token, channel_id, after)

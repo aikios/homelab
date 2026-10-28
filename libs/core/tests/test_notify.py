@@ -58,8 +58,8 @@ class Transport(unittest.TestCase):
 
     def test_reuses_one_connection_and_sends_auth_in_process(self):
         FakeConn.script = [(200, b"[]"), (200, b"[]")]
-        notify.fetch_channel_messages("tok", "42")
-        notify.fetch_channel_messages("tok", "42", after="7")
+        notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok")
+        notify._request("GET", notify.API + "/channels/42/messages?limit=100&after=7", "tok")
         self.assertEqual(len(FakeConn.made), 1)
         c = FakeConn.made[0]
         self.assertEqual(c.host, "discord.com")
@@ -77,20 +77,20 @@ class Transport(unittest.TestCase):
 
     def test_stale_keepalive_reconnects(self):
         FakeConn.script = [(200, b"[]"), http.client.RemoteDisconnected("idle close"), (200, b"[]")]
-        notify.fetch_channel_messages("tok", "42")
-        notify.fetch_channel_messages("tok", "42")
+        notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok")
+        notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok")
         self.assertEqual(len(FakeConn.made), 2)
         self.assertTrue(FakeConn.made[0].closed)
 
     def test_rate_limit_waits_then_retries(self):
         FakeConn.script = [(429, b'{"message": "slow down", "retry_after": 0.4}'), (200, b'[{"id": "5"}]')]
-        self.assertEqual(notify.fetch_channel_messages("tok", "42"), [{"id": "5"}])
+        self.assertEqual(notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok"), [{"id": "5"}])
         self.sleep.assert_called_once_with(0.4)
 
     def test_long_rate_limit_is_an_error(self):
         FakeConn.script = [(429, b'{"retry_after": 600}')]
         with self.assertRaises(RuntimeError):
-            notify.fetch_channel_messages("tok", "42")
+            notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok")
 
     def test_discord_error_payload_raises(self):
         FakeConn.script = [(403, b'{"code": 50007, "message": "Cannot send messages to this user"}')]
@@ -100,7 +100,7 @@ class Transport(unittest.TestCase):
     def test_network_down_raises_after_retries(self):
         FakeConn.script = [OSError("down")] * 3
         with self.assertRaises(RuntimeError):
-            notify.fetch_channel_messages("tok", "42")
+            notify._request("GET", notify.API + "/channels/42/messages?limit=100", "tok")
 
 
 if __name__ == "__main__":

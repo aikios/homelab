@@ -38,9 +38,10 @@ If unsure which release, ask. Do not guess and grab.
 resolution 1080p · audio English · English subtitles, SOFT.
 `attach_subs` always pulls the sub that shipped with the release first (embedded
 track, then release sidecar) so timing matches; online is last resort and it tells
-you when it used that. The muxed track is auto-styled (yellow / black outline /
-Helvetica / italic) with the font embedded; mp4/m4v are remuxed to mkv first (stream
-copy, no re-encode). Burn-in only if he says "burn"/"hardcode"/"baked in" — warn
+you when it used that. With several tracks in the language it picks the one with the
+dialogue (not forced / signs / SDH). The result is a styled sidecar (yellow / black
+outline / Helvetica / italic) next to the video, flagged default; the video file is
+never rewritten (media-transcoder keeps everything as TV-playable mp4). Burn-in only if he says "burn"/"hardcode"/"baked in" — warn
 it's hours on this box. After `grab` imports, run `attach_subs` then `jellyfin_scan`
 (the poller does this automatically; only do it by hand if he asks).
 

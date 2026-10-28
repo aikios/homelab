@@ -7,7 +7,6 @@ copy-pasted per service.
 from .config import load_env, require, shared_env
 from .ha import home_location
 from .notify import (
-    fetch_channel_messages,
     open_dm_channel,
     send_channel_message,
     send_discord_dm,
@@ -18,7 +17,6 @@ __version__ = "0.1.0"
 __all__ = [
     "Discord",
     "Messenger",
-    "fetch_channel_messages",
     "home_location",
     "load_env",
     "open_dm_channel",

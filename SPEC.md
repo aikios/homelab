@@ -33,7 +33,6 @@ homelab/
 │   └── src/homelab_core/   #   config (env/secrets), notify (Discord), ha (location)
 ├── services/               # owner-built Python daemons
 │   ├── rain-notifier/      #   workspace members: src/, systemd/*, SPEC.md (was rain-alert)
-│   ├── news-notifier/      #   (was topic-watcher)
 │   ├── media-concierge/    #   (was mediabot)
 │   ├── media-transcoder/   #   TV stack: workspace member (merged reencode-worker/-submit)
 │   ├── stream-resolver/    #   TV stack: workspace member (was sports-api)
@@ -50,8 +49,9 @@ homelab/
 ## Current server state (inventoried 2026-10-11, Ubuntu 22.04)
 Owner Python services (git + uv + systemd):
 - **media-concierge** — Discord bot (anthropic Tool Runner), `media-concierge.service` (resident).
-- **news-notifier** (was topic-watcher) — `news-notifier-listen.service` (2s DM loop) +
-  `news-notifier.timer` (daily Google News) + oneshot `news-notifier.service`.
+- ~~news-notifier~~ (was topic-watcher) — removed 2026-10-28 at the owner's request:
+  not useful, and its 2s DM listener raced media-concierge for the same messages
+  ("remove madoka" was handled by both). media-concierge is now the only reader.
 - **rain-notifier** (was rain-alert) — `rain-notifier.timer` (08:00) + oneshot `rain-notifier.service`.
 
 Third-party (docker-compose): arr-stack (radarr/sonarr/prowlarr/qbittorrent/
@@ -235,5 +235,5 @@ two-host move for no user-visible gain).
   from the migration; touches live code.
 - Secret delivery beyond `.env` per host (sops/age?) if hosts multiply.
 - Whether to add Dockerfiles for the self-contained Python services (rain-notifier,
-  news-notifier) for image-based portability — not needed now.
+  media-transcoder) for image-based portability — not needed now.
 - Extracting a generic, host-free public "service template" repo for showcasing.

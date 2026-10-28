@@ -40,7 +40,7 @@ verify it live before starting the next.
 at `github.com/aikios/homelab`.** Everything below is the state to resume from.
 
 What exists and runs live on the server (all verified):
-- **services/** — rain-notifier (08:00 timer), news-notifier (2s `--listen` resident
+- **services/** — rain-notifier (08:00 timer), news-notifier (removed 2026-10-28; was a 2s `--listen` resident
   + 09:00 news timer), media-concierge (resident Discord Tool-Runner bot). All run from
   this checkout via systemd; media-concierge's agent turn was smoke-tested on anthropic
   1.13.0.
