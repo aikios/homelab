@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import json
 import re
-import shlex
 import subprocess
 import time
 import uuid
@@ -311,7 +310,7 @@ def grab(kind: str, guid: str, indexer_id: int, target_title: str,
         if m and not m["monitored"]:
             m["monitored"] = True
             app._j("PUT", f"/movie/{m['id']}", json=m)  # noqa: SLF001
-    res = app.grab_release(guid, indexer_id)
+    app.grab_release(guid, indexer_id)
     j = jobs.create("download", target_title, channel_id, media_kind=kind, guid=guid,
                     subs_lang=subs_lang, subs_mode=subs_mode)
     _log("grab", title=target_title, guid=guid, indexer_id=indexer_id, job=j.id)

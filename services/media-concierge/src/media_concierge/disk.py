@@ -67,7 +67,6 @@ def inventory_sizes() -> list[TitleSize]:
         if kind == "movie":
             is_played = played.get(it["Id"], False)
         else:
-            eps = [v for k, v in played.items()]  # coarse; refined per-series below if needed
             is_played = False
         added = it.get("DateCreated", "")
         added_ts = 0.0

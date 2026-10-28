@@ -72,9 +72,6 @@ class Jellyfin:
         else:
             self._j("POST", "/Library/Refresh")
 
-    def delete_item(self, item_id: str) -> None:
-        self._j("DELETE", f"/Items/{item_id}")
-
 
 if __name__ == "__main__":
     j = Jellyfin()

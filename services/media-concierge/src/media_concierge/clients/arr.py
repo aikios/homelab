@@ -53,9 +53,6 @@ class _Arr:
                                              "includeEpisode": True, "includeSeries": True})
         return q.get("records", q) if isinstance(q, dict) else q
 
-    def command(self, name: str, **body) -> dict:
-        return self._j("POST", "/command", json={"name": name, **body})
-
     def grab_release(self, guid: str, indexer_id: int) -> dict:
         """POST a release the arr previously returned -> arr grabs via its download client."""
         return self._j("POST", "/release", json={"guid": guid, "indexerId": indexer_id})

@@ -82,14 +82,6 @@ def _lang_match(tag: str, lang: str) -> bool:
     return tag in (lang.lower(), _alpha3(lang)) or (lang == "en" and tag.startswith("eng"))
 
 
-def has_lang(video: str, lang: str) -> bool:
-    info = probe(video)
-    if any(_lang_match(e["lang"], lang) and e["codec"] in TEXT_SUB_CODECS
-           for e in info["embedded"]):
-        return True
-    return any(_lang_match(Path(s).stem.split(".")[-1], lang) for s in info["sidecar"])
-
-
 STYLED_TITLE = "English (styled)"  # legacy: the title of a styled track muxed into an mkv
 
 
@@ -203,7 +195,6 @@ def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
     if best:
         return ("sidecar", best["path"])
     # only-one sidecar with no language marker: assume it's the release's main sub
-    bare = [s for s in info["sidecar"] if "." not in Path(s).stem.split("]")[-1]]
     if len(info["sidecar"]) == 1:
         return ("sidecar", info["sidecar"][0])
     got = _fetch_online(video, lang)
