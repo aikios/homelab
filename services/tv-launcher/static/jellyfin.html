@@ -146,7 +146,7 @@ function draw() {
   var cur = grid.children[sel];
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
 }
-function render(list, title) { items = list; sel = 0; grid.scrollTop = 0; topbar.textContent = "Jellyfin" + (title ? " — " + title : ""); draw(); }
+function render(list, title) { items = list; sel = 0; grid.scrollTop = 0; topbar.textContent = title || ""; draw(); }
 
 /* ---------------- player ---------------- */
 function showCtrl(autohide) {
@@ -442,12 +442,13 @@ function openItem(it) {
   }
   if (it.Type === "Series") req = api("/Shows/" + it.Id + "/Seasons?userId=" + UID + "&Fields=PrimaryImageAspectRatio").then(function (r) {
     r.Items.forEach(function (s) { if (!s.SeriesId) s.SeriesId = it.Id; }); render(r.Items, it.Name); });
-  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID + "&Fields=Overview").then(function (r) { render(r.Items, it.Name); });
+  else if (it.Type === "Season") req = api("/Shows/" + it.SeriesId + "/Episodes?seasonId=" + it.Id + "&userId=" + UID + "&Fields=Overview").then(function (r) {
+    render(r.Items, (it.SeriesName ? it.SeriesName + " — " : "") + it.Name); });
   else req = api("/Users/" + UID + "/Items?ParentId=" + it.Id + "&SortBy=SortName&Recursive=" +
     (it.CollectionType === "movies" ? "true" : "false")).then(function (r) {
       r.Items = r.Items.filter(function (x) { return x.Type !== "Folder" && x.Type !== "CollectionFolder"; });
       render(r.Items, it.Name); });
-  req.catch(function (e) { stack.pop(); topbar.textContent = "Jellyfin — error: " + e.message; });
+  req.catch(function (e) { stack.pop(); topbar.textContent = "Error: " + e.message; });
 }
 function back() {
   if (inPlayer) { closePlayer(); return; }
@@ -488,5 +489,5 @@ api("/Users/" + UID + "/Views").then(function (r) {
   r.Items.unshift({ Id: "sports-tile", Name: "Sports", Type: "SportsTile" });
   render(r.Items);
 })
-  .catch(function (e) { topbar.textContent = "Jellyfin — " + e.message; });
+  .catch(function (e) { topbar.textContent = "Error: " + e.message; });
 </script></body></html>
