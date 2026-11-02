@@ -220,6 +220,10 @@ def process_job(job):
     remote_mp4 = outdir + "/" + base + ".mp4"
     t0 = time.time()
 
+    # An .mkv beside an existing .mp4 of the same name would overwrite it on upload.
+    if remote_mp4 != source and ssh("test -e " + shlex.quote(remote_mp4)).returncode == 0:
+        raise RuntimeError("output already exists, not overwriting: " + remote_mp4)
+
     probe = ffprobe_remote(source)
     streams = probe.get("streams", [])
     fmt = probe.get("format", {})

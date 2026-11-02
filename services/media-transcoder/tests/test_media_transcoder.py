@@ -219,5 +219,23 @@ class ExtractSubsTest(unittest.TestCase):
         self.assertEqual([r for _, r in got], ["x.en.default.ass"])
 
 
+class OverwriteGuardTest(unittest.TestCase):
+    def test_refuses_to_overwrite_a_different_mp4(self):
+        from media_transcoder import core
+        with (mock.patch.object(core, "ssh", return_value=mock.Mock(returncode=0)),
+              mock.patch.object(core, "ffprobe_remote") as probe,
+              self.assertRaisesRegex(RuntimeError, "not overwriting")):
+            core.process_job({"source": "/media/M/M.mkv"})
+        probe.assert_not_called()
+
+    def test_mp4_source_is_not_its_own_conflict(self):
+        from media_transcoder import core
+        with (mock.patch.object(core, "ssh") as ssh,
+              mock.patch.object(core, "ffprobe_remote", return_value={}),
+              mock.patch.object(core, "is_friendly", return_value=True)):
+            self.assertEqual(core.process_job({"source": "/media/M/M.mp4"}), "already-friendly")
+        ssh.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

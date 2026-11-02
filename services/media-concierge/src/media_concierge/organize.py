@@ -46,6 +46,56 @@ def _biggest_video(path: Path) -> Path | None:
     return max(vids, key=lambda p: p.stat().st_size) if vids else None
 
 
+_PART_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+               "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5}
+_PART_RE = re.compile(r"\b(?:part|pt)\.?\s*(\d+|one|two|three|four|five|iii|ii|iv|i|v)\b", re.IGNORECASE)
+
+
+def _part_of(name: str) -> int | None:
+    """The part number a title names ("Recap Part 2", "Dune: Part Two"), if any."""
+    m = _PART_RE.search(name or "")
+    if not m:
+        return None
+    n = m.group(1).lower()
+    return int(n) if n.isdigit() else _PART_WORDS[n]
+
+
+def _pick_movie_hit(hits: list[dict], name: str) -> dict | None:
+    """Choose the lookup hit for `name`, or None when the parts make it ambiguous.
+
+    guessit drops "Part N" from the title it parses, so the lookup returns every part
+    in arbitrary order: the first hit can be a different movie that would overwrite
+    this one's library slot."""
+    want = _part_of(name)
+    if want is not None:
+        for h in hits:
+            if _part_of(h["title"]) == want:
+                return h
+        return next((h for h in hits if _part_of(h["title"]) is None), None)
+    top_part = _part_of(hits[0]["title"])
+    if top_part is not None and any(_part_of(h["title"]) not in (None, top_part) for h in hits):
+        return None
+    return hits[0]
+
+
+def _existing_videos(folder: Path) -> list[Path]:
+    if not folder.is_dir():
+        return []
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXT]
+
+
+def _check_movie_slot(ident: Identity, folder: Path) -> None:
+    """Refuse an uncertain match, and refuse to replace a movie already in the library
+    (any extension: the transcoder turns .mkv into .mp4). Raised before anything moves,
+    so the download stays put and the caller reports it."""
+    if ident.confidence == "ambiguous":
+        names = ", ".join(str(c["title"]) for c in ident.candidates)
+        raise ValueError(f"ambiguous title, could be: {names}. Say which with title_hint.")
+    existing = _existing_videos(folder)
+    if existing:
+        raise FileExistsError(f"already in the library, not overwriting: {existing[0]}")
+
+
 def identify(path: str, title_hint: str | None = None) -> Identity:
     p = Path(path)
     vid = _biggest_video(p)
@@ -69,10 +119,13 @@ def identify(path: str, title_hint: str | None = None) -> Identity:
             ident.candidates = [{"title": h["title"], "year": h.get("year"),
                                  "tmdbId": h.get("tmdbId")} for h in hits]
             if hits:
-                best = hits[0]
-                ident.title, ident.year = best["title"], best.get("year")
-                ident.tmdb_id = best.get("tmdbId")
-                ident.confidence = "matched"
+                best = _pick_movie_hit(hits, name_for_guess)
+                if best is None:
+                    ident.confidence = "ambiguous"
+                else:
+                    ident.title, ident.year = best["title"], best.get("year")
+                    ident.tmdb_id = best.get("tmdbId")
+                    ident.confidence = "matched"
         else:
             hits = Sonarr().lookup(ident.title)[:5]
             ident.candidates = [{"title": h["title"], "year": h.get("year"),
@@ -123,6 +176,7 @@ def import_file(path: str, ident: Identity, copy: bool = False) -> dict:
     if ident.kind == "movie":
         folder = Path(CFG.media_movies) / f"{_safe(ident.title)} ({ident.year})"
         base = f"{_safe(ident.title)} ({ident.year})"
+        _check_movie_slot(ident, folder)
     else:
         se = f"S{ident.season or 1:02d}E{ident.episode or 1:02d}"
         folder = Path(CFG.media_shows) / _safe(ident.title) / f"Season {ident.season or 1:02d}"
@@ -130,6 +184,8 @@ def import_file(path: str, ident: Identity, copy: bool = False) -> dict:
 
     folder.mkdir(parents=True, exist_ok=True)
     dest_vid = folder / f"{base}{vid.suffix.lower()}"
+    if dest_vid.exists():
+        raise FileExistsError(f"already in the library, not overwriting: {dest_vid}")
     op = shutil.copy2 if copy else shutil.move
     op(str(vid), str(dest_vid))
     moved = [str(dest_vid)]
@@ -207,6 +263,7 @@ def import_download(path: str, title_hint: str | None = None, kind_hint: str = "
         vid = max(vids, key=lambda p: p.stat().st_size)
         folder = Path(CFG.media_movies) / f"{_safe(ident.title)} ({ident.year})"
         base = f"{_safe(ident.title)} ({ident.year})"
+        _check_movie_slot(ident, folder)
         folder.mkdir(parents=True, exist_ok=True)
         dest = folder / f"{base}{vid.suffix.lower()}"
         op(str(vid), str(dest))
@@ -227,6 +284,9 @@ def import_download(path: str, title_hint: str | None = None, kind_hint: str = "
                 continue
             folder = Path(CFG.media_shows) / series / f"Season {season:02d}"
             base = f"{series} - S{season:02d}E{ep:02d}"
+            if any(p.stem == base for p in _existing_videos(folder)):
+                skipped.append(f"{vid.name} (already in library)")
+                continue
             folder.mkdir(parents=True, exist_ok=True)
             dest = folder / f"{base}{vid.suffix.lower()}"
             op(str(vid), str(dest))
