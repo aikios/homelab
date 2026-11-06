@@ -237,5 +237,51 @@ class OverwriteGuardTest(unittest.TestCase):
         ssh.assert_not_called()
 
 
+class EncodeModeTest(unittest.TestCase):
+    """encode() tries a stream-copy remux first only for TV-playable h264."""
+
+    @staticmethod
+    def streams(codec, pix_fmt, audio="ac3"):
+        return [{"index": 0, "codec_type": "video", "codec_name": codec, "pix_fmt": pix_fmt},
+                {"index": 1, "codec_type": "audio", "codec_name": audio, "disposition": {"default": 1}}]
+
+    def run_encode(self, streams, fail_first=False):
+        from media_transcoder import core
+        calls = []
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = os.path.join(tmp.name, "x.mp4")
+
+        def fake_pipe(args, _source):
+            calls.append(args)
+            ok = not (fail_first and len(calls) == 1)
+            if ok:
+                with open(out, "wb") as f:
+                    f.write(b"\0" * 1_000_001)
+            return mock.Mock(returncode=0 if ok else 1, stderr="")
+        with mock.patch.object(core, "pipe_ffmpeg", side_effect=fake_pipe), mock.patch.object(core, "log"):
+            mode = core.encode("/m/x.mkv", streams, out)
+        return mode, calls
+
+    def test_h264_8bit_is_remuxed_with_audio_converted(self):
+        mode, calls = self.run_encode(self.streams("h264", "yuv420p"))
+        self.assertEqual(mode, "remux")
+        self.assertEqual(len(calls), 1)
+        a = calls[0]
+        self.assertEqual(a[a.index("-c:v") + 1], "copy")
+        self.assertEqual(a[a.index("-c:a") + 1], "aac")
+
+    def test_failed_remux_falls_back_to_reencode(self):
+        mode, calls = self.run_encode(self.streams("h264", "yuv420p"), fail_first=True)
+        self.assertEqual(mode, "NVIDIA")
+        self.assertEqual(calls[1][calls[1].index("-c:v") + 1], "h264_nvenc")
+
+    def test_hevc_and_10bit_h264_are_reencoded(self):
+        for codec, pix in (("hevc", "yuv420p"), ("h264", "yuv420p10le")):
+            mode, calls = self.run_encode(self.streams(codec, pix))
+            self.assertEqual(mode, "NVIDIA", (codec, pix))
+            self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
+
+
 if __name__ == "__main__":
     unittest.main()

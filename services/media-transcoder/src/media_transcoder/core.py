@@ -90,11 +90,27 @@ def is_friendly(fmt, streams):
     return v.get("codec_name") == "h264" and a.get("codec_name") == "aac"
 
 
+def can_copy_video(streams):
+    """8-bit 4:2:0 h264 already plays on the TV, so only the container (and maybe the
+    audio) needs changing: copy the video stream instead of re-encoding it. Re-encoding
+    h264 at constqp 24 made Irma Vep 41% larger (4.8 -> 6.7 GB) and took 18 min.
+    10-bit (High 10) or 4:2:2/4:4:4 h264 still gets re-encoded."""
+    v = next((s for s in streams if s.get("codec_type") == "video"
+              and not s.get("disposition", {}).get("attached_pic")), {})
+    return v.get("codec_name") == "h264" and v.get("pix_fmt") in ("yuv420p", "yuvj420p")
+
+
 def encode(source, streams, local_mp4):
     a = pick_audio(streams)
     aidx = str(a.get("index", 1))
     ac = ["-c:a", "copy"] if a.get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "256k"]
-    attempts = [
+    remux = []
+    if can_copy_video(streams):
+        # R: remux, video copied as-is (seconds, same quality and size); falls through
+        # to the re-encode tiers if the copy fails (e.g. missing timestamps).
+        remux = [["-fflags", "+genpts", "-i", "pipe:0", "-map", "0:V:0", "-map", "0:" + aidx,
+                  "-c:v", "copy"] + ac + ["-sn", "-movflags", "+faststart", local_mp4]]
+    attempts = remux + [
         # A: NVIDIA full-GPU (NVDEC decode + NVENC encode) — handles 10-bit HEVC
         ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", "pipe:0",
          "-map", "0:V:0", "-map", "0:" + aidx, "-vf", "scale_cuda=format=nv12",
@@ -112,7 +128,7 @@ def encode(source, streams, local_mp4):
          "-c:v", "h264_vaapi", "-qp", "24", "-b:v", "0"] + ac +
         ["-sn", "-movflags", "+faststart", local_mp4],
     ]
-    labels = ["NVIDIA", "GPU-decode", "CPU-decode"]
+    labels = ["remux"] * len(remux) + ["NVIDIA", "GPU-decode", "CPU-decode"]
     for n, args in enumerate(attempts):
         ff = pipe_ffmpeg(args, source)
         if ff.returncode == 0 and os.path.exists(local_mp4) and os.path.getsize(local_mp4) > 1_000_000:

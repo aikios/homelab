@@ -47,7 +47,9 @@ media host (`MEDIA_TRANSCODER_QUEUE_DIR`). A worker claims one with an atomic
   breaks submitting or filing.
 - `worker.py` — the daemon loop (claim → `core.process_job` → file result).
 - `core.py` — ffprobe the source remotely; skip if already friendly; else pull it
-  over ssh and encode with a 3-tier ffmpeg fallback (NVENC → VAAPI GPU-decode →
+  over ssh; if the video is already 8-bit 4:2:0 h264, remux it (video stream-copied, audio → aac
+  if needed: seconds, no size or quality change), otherwise or if that fails, encode with a
+  3-tier ffmpeg fallback (NVENC → VAAPI GPU-decode →
   CPU-decode + VAAPI-encode); extract text subs as sidecars (one read for all
   tracks; ONE per language, the primary track via `homelab_core.subtitles`; a
   language that already has a sidecar, e.g. media-concierge's styled
