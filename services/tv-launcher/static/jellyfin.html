@@ -200,7 +200,7 @@ function streamUrl(startMs) {
 function staticUrl() { return API + "/Videos/" + curItemId + "/stream.mp4?static=true&api_key=" + KEY; }
 function openPlayer(id, name, rtTicks, kicker) {
   inPlayer = true; ptitle_txt = name || "";
-  curItemId = id; ccCues = null; ccOn = false; subEl.style.display = "none";
+  curItemId = id; ccCues = null; ccOn = false; hideCc();
   posBase = 0; logicalDur = rtTicks ? Math.floor(rtTicks / 10000) : 0; psid = "web" + Date.now();
   player.style.display = "block";
   ptitle.innerHTML = (kicker ? "<div class='pk'>" + esc(kicker) + "</div>" : "") +
@@ -436,9 +436,12 @@ function parseAss(txt) {
       if (!base) return;
       var sty = { size: base.size, color: base.color, oc: base.oc, bc: base.bc, b: base.b, i: base.i, u: base.u,
         out: base.out, sh: base.sh, an: base.an || 2, ml: base.ml, mr: base.mr, mv: base.mv, resX: resX || 384 };
-      var tx = o.text || "", m2;
-      if (m2 = tx.match(/\{\\an(\d)\}/i)) { sty.an = +m2[1]; tx = tx.replace(/\{\\an\d\}/gi, ""); }
-      if (m2 = tx.match(/\{\\pos\((\d+),(\d+)\)\}/i)) { sty.px = +m2[1]; sty.py = +m2[2]; tx = tx.replace(/\{\\pos\(\d+,\d+\)\}/gi, ""); }
+      var tx = o.text || "", m2, ov = (tx.match(/\{[^}]*\}/g) || []).join("");
+      // typeset signs put \an/\pos/\move inside a block with other tags ({\an8\pos(640,52)\fad(..)});
+      // assInline drops the blocks, so only read them here. \move: draw at its start point.
+      if (/\\p[1-9]/.test(ov)) return; // vector drawing (sign shapes/masks): not renderable as text
+      if (m2 = ov.match(/\\an([1-9])/)) sty.an = +m2[1];
+      if (m2 = ov.match(/\\(?:pos|move)\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/)) { sty.px = +m2[1]; sty.py = +m2[2]; }
       var mL = +o.marginl || 0, mR = +o.marginr || 0, mV = +o.marginv || 0;
       if (mL) sty.ml = mL; if (mR) sty.mr = mR; if (mV) sty.mv = mV;
       cues.push({ a: assTime(o.start), b: assTime(o.end), t: assInline(tx, base, 1280 / sty.resX), sty: sty });
@@ -447,7 +450,7 @@ function parseAss(txt) {
   return cues;
 }
 function toggleCC() {
-  if (ccOn) { ccOn = false; subEl.style.display = "none"; pMsg("CC off", 1500); showCtrl(true); return; }
+  if (ccOn) { ccOn = false; hideCc(); pMsg("CC off", 1500); showCtrl(true); return; }
   if (!subStreams.length || ccIdx < 0 || !ccMsId) { pMsg("no subtitle tracks", 2500); return; }
   var st = subStreams[ccIdx];
   if (ccCues) { ccOn = true; renderCc(); pMsg("CC: " + (st.DisplayTitle || st.Language || "on"), 1500); showCtrl(true); return; }
@@ -462,16 +465,51 @@ function toggleCC() {
     })
     .catch(function (e) { pMsg("sub load failed: " + e.message, 2500); });
 }
+var ccEls = [subEl];
+function ccEl(n) {
+  while (ccEls.length <= n) {
+    var d = document.createElement("div"); d.style.display = "none"; document.body.appendChild(d); ccEls.push(d);
+  }
+  return ccEls[n];
+}
+function hideCc(from) { for (var i = from || 0; i < ccEls.length; i++) ccEls[i].style.display = "none"; }
+// All cues active at ms, as boxes to draw. Free-flowing cues sharing alignment + margins stack in one box
+// (earliest-started nearest the anchored edge, as libass stacks collisions); \pos cues get their own box.
+// Identical text at the same place (layered border/fill copies) is drawn once.
+function ccBoxes(cues, ms) {
+  var boxes = [], groups = {}, seen = {}, i, c, key, g;
+  for (i = 0; i < cues.length; i++) {
+    c = cues[i];
+    if (ms < c.a || ms > c.b) continue;
+    key = c.t + "|" + (c.sty ? [c.sty.an, c.sty.px, c.sty.py, c.sty.ml, c.sty.mr, c.sty.mv].join(",") : "");
+    if (seen[key]) continue;
+    seen[key] = 1;
+    if (c.sty && c.sty.px != null) { boxes.push({ c: c, parts: [c] }); continue; }
+    g = c.sty ? [c.sty.an || 2, c.sty.ml, c.sty.mr, c.sty.mv].join(",") : "srt";
+    if (!groups[g]) { groups[g] = { c: c, parts: [] }; boxes.push(groups[g]); }
+    groups[g].parts.push(c);
+  }
+  boxes.forEach(function (bx) {
+    var ps = bx.parts.slice().sort(function (p, q) { return p.a - q.a; });
+    if (!bx.c.sty || (bx.c.sty.an || 2) <= 3) ps.reverse(); // bottom-anchored: earliest at the bottom
+    bx.html = ps.map(function (p) { return p.t; }).join("<br>");
+  });
+  return boxes;
+}
 function renderCc() {
   if (!ccOn || !ccCues) return;
-  var ms = logicalPos(), c = null, i;
-  for (i = 0; i < ccCues.length; i++) if (ms >= ccCues[i].a && ms <= ccCues[i].b) { c = ccCues[i]; break; }
-  if (!c) { subEl.style.display = "none"; return; }
-  if (!c.sty) { // plain SRT: fixed bottom styling
-    subEl.style.cssText = "position:fixed;left:10%;right:10%;bottom:110px;text-align:center;font-size:26px;" +
-      "color:#fff;text-shadow:0 2px 4px #000,0 0 8px #000;z-index:14;display:block;pointer-events:none;";
-    subEl.innerHTML = c.t; return;
+  var boxes = ccBoxes(ccCues, logicalPos()), n;
+  for (n = 0; n < boxes.length; n++) {
+    var el = ccEl(n);
+    el.style.cssText = cueCss(boxes[n].c);
+    el.innerHTML = boxes[n].html;
   }
+  hideCc(n);
+}
+function cueCss(c) {
+  if (!c.sty) // plain SRT: fixed bottom styling
+    return "position:fixed;left:10%;right:10%;bottom:110px;text-align:center;font-size:26px;" +
+      "color:#fff;text-shadow:0 2px 4px #000,0 0 8px #000;z-index:14;display:block;pointer-events:none;";
   // styled ASS cue: map to the video frame in design-space CSS px
   var z = document.body.style.zoom ? parseFloat(document.body.style.zoom) : 1;
   var DW = Math.round((window.innerWidth || 1280) / z), DH = Math.round((window.innerHeight || 720) / z);
@@ -491,9 +529,11 @@ function renderCc() {
   if (S > 0) sh.push(S + "px " + S + "px 2px " + bc);
   sh.push("0 2px 4px #000");
   css += "text-shadow:" + sh.join(",") + ";";
-  if (c.sty.px) { // \pos override: center a box at that point of the frame
+  if (c.sty.px != null) { // \pos override: \an picks which point of the box sits at (x, y)
+    var tx = col === 1 ? "0" : col === 3 ? "-100%" : "-50%", ty = an >= 7 ? "0" : an >= 4 ? "-50%" : "-100%";
     css += "left:" + Math.round(rx + c.sty.px * sc) + "px;top:" + Math.round(ry + c.sty.py * sc) + "px;" +
-      "transform:translate(-50%,-50%);text-align:center;max-width:" + Math.round(w * 0.9) + "px;";
+      "transform:translate(" + tx + "," + ty + ");white-space:nowrap;text-align:" +
+      (col === 1 ? "left" : col === 3 ? "right" : "center") + ";";
   } else {
     css += "left:" + Math.round(rx + mL) + "px;right:" + Math.round((DW - (rx + w)) + mR) + "px;" +
       "text-align:" + (col === 1 ? "left" : col === 3 ? "right" : "center") + ";";
@@ -501,8 +541,7 @@ function renderCc() {
     else if (an >= 7) css += "top:" + Math.round(ry + mV) + "px;";
     else css += "top:" + Math.round(ry + h / 2) + "px;transform:translateY(-50%);";
   }
-  subEl.style.cssText = css;
-  subEl.innerHTML = c.t;
+  return css;
 }
 video.addEventListener("timeupdate", renderCc);
 
