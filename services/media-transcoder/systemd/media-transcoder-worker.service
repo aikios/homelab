@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 User=%%DEPLOY_USER%%
+# The VAAPI fallback tiers need the iGPU render node; a service gets no logind seat ACL.
+SupplementaryGroups=render video
 WorkingDirectory=%%REPO%%/services/media-transcoder
 # MEDIA_TRANSCODER_SSH_HOST / JELLYFIN_URL / JELLYFIN_API_KEY live in the gitignored .env.
 EnvironmentFile=%%REPO%%/services/media-transcoder/.env

@@ -1,7 +1,8 @@
 # core.py -- media-transcoder encode logic (runs on the GPU host).
-# Worker pulls a source over ssh from blacklodge, re-encodes to mp4/h264 via
-# VAAPI (Intel UHD), extracts text subs as styled sidecars, uploads, verifies,
-# swaps in the new file and (optionally) refreshes Jellyfin.
+# Worker reads a source from blacklodge (ssh pipe, or sftp for mp4/mov), re-encodes
+# to mp4/h264 (NVENC, falling back to VAAPI on the Intel iGPU), extracts text subs
+# as styled sidecars, uploads, verifies, swaps in the new file and (optionally)
+# refreshes Jellyfin.
 
 import json
 import os
@@ -46,15 +47,39 @@ def ssh(cmdstring):
     return run(SSH + [cmdstring])
 
 
-def pipe_ffmpeg(args, path):
+def needs_seek(fmt):
+    """mp4/mov can keep the index (moov) after the media data (e.g. WEBRips laid out
+    ftyp/free/mdat/moov). Through a pipe ffmpeg reaches the moov only after the data
+    has gone by and fails ("Invalid data found when processing input", then a
+    misleading "Function not implemented" from the filter graph). Those sources
+    are read over sftp, which can seek; everything else streams through the ssh
+    pipe, which is ~6x faster than libssh's sftp."""
+    names = (fmt.get("format_name") or "").split(",")
+    return "mp4" in names or "mov" in names
+
+
+def pipe_ffmpeg(args, path, seek=False):
+    """Run ffmpeg on the remote source; "pipe:0" in args is the input. With
+    seek=True it is replaced by an sftp:// URL (raw path; libssh uses the same
+    key as ssh) instead of piping `cat` over ssh."""
+    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+    if seek:
+        url = "sftp://" + HOST + path
+        return run(cmd + [url if a == "pipe:0" else a for a in args])
     src = subprocess.Popen(SSH + ["cat " + shlex.quote(path)], stdout=subprocess.PIPE)
-    ff = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y"] + args,
-        stdin=src.stdout, check=False, capture_output=True, text=True)
+    ff = subprocess.run(cmd + args, stdin=src.stdout, check=False, capture_output=True, text=True)
     assert src.stdout is not None  # stdout=PIPE always sets it
     src.stdout.close()
     src.wait()
     return ff
+
+
+def ff_error(stderr):
+    """The first error is the cause; the last lines are often only its fallout."""
+    lines = [ln for ln in (stderr or "").strip().splitlines() if ln.strip()]
+    if len(lines) <= 3:
+        return " | ".join(lines)[-400:]
+    return (" | ".join(lines[:2]) + " | ... | " + lines[-1])[-400:]
 
 
 def ffprobe_remote(path):
@@ -100,7 +125,7 @@ def can_copy_video(streams):
     return v.get("codec_name") == "h264" and v.get("pix_fmt") in ("yuv420p", "yuvj420p")
 
 
-def encode(source, streams, local_mp4):
+def encode(source, streams, local_mp4, seek=False):
     a = pick_audio(streams)
     aidx = str(a.get("index", 1))
     ac = ["-c:a", "copy"] if a.get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "256k"]
@@ -130,12 +155,12 @@ def encode(source, streams, local_mp4):
     ]
     labels = ["remux"] * len(remux) + ["NVIDIA", "GPU-decode", "CPU-decode"]
     for n, args in enumerate(attempts):
-        ff = pipe_ffmpeg(args, source)
+        ff = pipe_ffmpeg(args, source, seek=seek)
         if ff.returncode == 0 and os.path.exists(local_mp4) and os.path.getsize(local_mp4) > 1_000_000:
             return labels[n]
         if os.path.exists(local_mp4):
             os.remove(local_mp4)
-        log(labels[n] + " attempt failed: " + (ff.stderr or "").strip()[-200:])
+        log(labels[n] + " attempt failed: " + ff_error(ff.stderr))
     return None
 
 
@@ -152,7 +177,7 @@ def existing_sub_langs(outdir, base):
     return langs
 
 
-def extract_subs(source, streams, base, outdir):
+def extract_subs(source, streams, base, outdir, seek=False):
     """Text subs -> sidecars, ONE per language: the primary track (the one with
     the dialogue, not forced / signs / SDH-on-a-tie; see homelab_core.subtitles),
     skipping languages that already have a sidecar. All candidates come out of a
@@ -178,9 +203,9 @@ def extract_subs(source, streams, base, outdir):
     args = ["-i", "pipe:0"]
     for t in tracks:
         args += ["-map", "0:" + str(t["index"]), "-c:s", "copy", t["local"]]
-    ff = pipe_ffmpeg(args, source)
+    ff = pipe_ffmpeg(args, source, seek=seek)
     if ff.returncode != 0:
-        log("sub extract warnings: " + (ff.stderr or "").strip()[-200:])
+        log("sub extract warnings: " + ff_error(ff.stderr))
     sidecars = []
     for lang, ts in by_lang.items():
         ok = [t for t in ts if os.path.exists(t["local"]) and os.path.getsize(t["local"]) > 100]
@@ -248,9 +273,10 @@ def process_job(job):
     if is_friendly(fmt, streams):
         return "already-friendly"
 
-    mode = encode(source, streams, local_mp4)
+    seek = needs_seek(fmt)
+    mode = encode(source, streams, local_mp4, seek=seek)
     if not mode:
-        raise RuntimeError("encode failed (both modes)")
+        raise RuntimeError("encode failed (all modes)")
     info.update(mode=mode, out_bytes=os.path.getsize(local_mp4))
     log("encode ok via " + mode + " (" + str(int(time.time() - t0)) + "s, " +
         str(round(os.path.getsize(local_mp4) / 1e6)) + "MB)")
@@ -259,7 +285,7 @@ def process_job(job):
 
     sidecars = []
     if job.get("extract_subs", True):
-        sidecars = extract_subs(source, streams, base, outdir)
+        sidecars = extract_subs(source, streams, base, outdir, seek=seek)
         for _, rname in sidecars:
             log("sub sidecar: " + rname)
     info["subs"] = len(sidecars)

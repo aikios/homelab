@@ -6,7 +6,7 @@
 #   media-transcoder-submit --list                  show queue/claimed/done/failed
 # Jobs land in ~/reencode_farm/queue/ and are claimed atomically by a GPU-host
 # worker. Re-running --scan is safe: anything already queued/claimed/done is
-# skipped (failed jobs are retried).
+# skipped (failed jobs are retried, up to MAX_FAILS times per unchanged file).
 
 import glob
 import json
@@ -46,6 +46,10 @@ STATES = ("queue", "claimed", "done")
 # missing, zero-size, or modified within this window. It gets picked up on a
 # later scan once stable.
 STABLE_SECS = int(os.environ.get("MEDIA_TRANSCODER_STABLE_SECS", "120"))
+# A file that keeps failing would otherwise be re-queued (and DM'd) every 5-min
+# scan forever. After this many failed jobs filed since the file last changed,
+# --scan leaves it alone; submitting the path explicitly still queues it.
+MAX_FAILS = int(os.environ.get("MEDIA_TRANSCODER_MAX_FAILS", "3"))
 
 
 def log(msg):
@@ -62,10 +66,11 @@ def api(path):
 
 
 def known_sources():
-    """Paths in flight (queue/ or claimed/), and for paths already filed in done/,
-    when they were filed (the newest job json's mtime)."""
-    inflight, filed = set(), {}
-    for state in STATES:
+    """Paths in flight (queue/ or claimed/); for paths already filed in done/,
+    when they were filed (the newest job json's mtime); for paths filed in
+    failed/, the mtime of every failed job."""
+    inflight, filed, failed = set(), {}, {}
+    for state in STATES + ("failed",):
         for fn in glob.glob(os.path.join(BASE, state, "*.json")):
             try:
                 with open(fn) as f:
@@ -77,25 +82,32 @@ def known_sources():
                 continue
             if state == "done":
                 filed[s] = max(filed.get(s, 0.0), mtime)
+            elif state == "failed":
+                failed.setdefault(s, []).append(mtime)
             else:
                 inflight.add(s)
-    return inflight, filed
+    return inflight, filed, failed
 
 
-def already_handled(path, inflight, filed):
-    """Skip a path that is queued/claimed, or was filed done and hasn't changed
-    since. A file rewritten after its job (e.g. remuxed back to mkv) is checked
-    again instead of being skipped forever; an unchanged one (already-friendly,
-    or its original couldn't be removed) is not re-queued every scan."""
+def already_handled(path, inflight, filed, failed=None):
+    """Skip a path that is queued/claimed, was filed done and hasn't changed
+    since, or has failed MAX_FAILS times since it last changed. A file rewritten
+    after its job (e.g. remuxed back to mkv) is checked again instead of being
+    skipped forever; an unchanged one (already-friendly, or its original couldn't
+    be removed) is not re-queued every scan."""
     if path in inflight:
         return True
     filed_at = filed.get(path)
-    if filed_at is None:
+    fails = (failed or {}).get(path, [])
+    if filed_at is None and not fails:
         return False
     try:
-        return os.path.getmtime(path) <= filed_at
+        mtime = os.path.getmtime(path)
     except OSError:
         return True  # gone: nothing to do (submit() would skip it anyway)
+    if filed_at is not None and mtime <= filed_at:
+        return True
+    return sum(t >= mtime for t in fails) >= MAX_FAILS
 
 
 def submit(path, **extra):
@@ -129,7 +141,7 @@ def submit(path, **extra):
 def scan():
     items = api("/Items?Recursive=true&IncludeItemTypes=Movie,Episode"
                 "&Fields=MediaSources,Path")["Items"]
-    inflight, filed = known_sources()
+    inflight, filed, failed = known_sources()
     queued = []
     for it in items:
         ms = (it.get("MediaSources") or [{}])[0]
@@ -144,7 +156,7 @@ def scan():
             next((s for s in streams if s.get("Type") == "Audio"), {})
         friendly = (ms.get("Container") == "mp4" and v.get("Codec") == "h264"
                     and a.get("Codec") == "aac")
-        if friendly or already_handled(path, inflight, filed):
+        if friendly or already_handled(path, inflight, filed, failed):
             continue
         why = (f"{ms.get('Container') or '?'} · "
                f"{v.get('Codec') or '?'}/{a.get('Codec') or '?'}")

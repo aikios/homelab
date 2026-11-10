@@ -155,6 +155,13 @@ class AlreadyHandledTest(unittest.TestCase):
         os.utime(self.video, (3000, 3000))
         self.assertFalse(self.sub.already_handled(self.video, set(), {self.video: 2000.0}))
 
+    def test_repeated_failures_stop_requeueing_until_the_file_changes(self):
+        fails = {self.video: [2000.0] * self.sub.MAX_FAILS}
+        self.assertTrue(self.sub.already_handled(self.video, set(), {}, fails))
+        self.assertFalse(self.sub.already_handled(self.video, set(), {}, {self.video: [2000.0]}))
+        os.utime(self.video, (3000, 3000))  # rewritten after the failures: try again
+        self.assertFalse(self.sub.already_handled(self.video, set(), {}, fails))
+
     def test_missing_file_is_skipped(self):
         gone = os.path.join(self.tmp.name, "gone.mkv")
         self.assertTrue(self.sub.already_handled(gone, set(), {gone: 2000.0}))
@@ -177,7 +184,7 @@ class ExtractSubsTest(unittest.TestCase):
         self.stage.cleanup()
 
     def run_extract(self, streams, cues, existing=""):
-        def fake_pipe(args, _source):
+        def fake_pipe(args, _source, seek=False):
             outs = [args[i + 4] for i, a in enumerate(args) if a == "-map"]
             idxs = [int(args[i + 1].split(":")[1]) for i, a in enumerate(args) if a == "-map"]
             for idx, out in zip(idxs, outs):
@@ -252,7 +259,7 @@ class EncodeModeTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         out = os.path.join(tmp.name, "x.mp4")
 
-        def fake_pipe(args, _source):
+        def fake_pipe(args, _source, seek=False):
             calls.append(args)
             ok = not (fail_first and len(calls) == 1)
             if ok:
@@ -281,6 +288,24 @@ class EncodeModeTest(unittest.TestCase):
             mode, calls = self.run_encode(self.streams(codec, pix))
             self.assertEqual(mode, "NVIDIA", (codec, pix))
             self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
+
+
+class SeekTest(unittest.TestCase):
+    def test_mp4_and_mov_are_read_over_sftp(self):
+        from media_transcoder import core
+        self.assertTrue(core.needs_seek({"format_name": "mov,mp4,m4a,3gp,3g2,mj2"}))
+        self.assertFalse(core.needs_seek({"format_name": "matroska,webm"}))
+
+    def test_seek_replaces_the_pipe_with_an_sftp_url(self):
+        from media_transcoder import core
+        with mock.patch.object(core, "run") as run, mock.patch.object(core, "HOST", "u@h"):
+            core.pipe_ffmpeg(["-i", "pipe:0", "out.mp4"], "/m/a b.mp4", seek=True)
+        self.assertIn("sftp://u@h/m/a b.mp4", run.call_args[0][0])
+
+    def test_ff_error_keeps_the_first_error(self):
+        from media_transcoder import core
+        err = "cause\nsecond\nmiddle\nmore\nFunction not implemented"
+        self.assertEqual(core.ff_error(err), "cause | second | ... | Function not implemented")
 
 
 if __name__ == "__main__":
