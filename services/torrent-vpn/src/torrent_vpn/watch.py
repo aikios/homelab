@@ -1,15 +1,20 @@
 # watch.py -- torrent-vpn daemon (runs on the media host, as root).
-# Keeps Mullvad connected only while qBittorrent has work, and makes sure no
-# torrent traffic ever leaves outside the tunnel:
+# Keeps Mullvad connected (always, or only while qBittorrent has work when
+# TORRENT_VPN_IDLE_SECS > 0), and makes sure no torrent traffic ever leaves
+# outside the tunnel:
 #   1. qBittorrent adds every torrent stopped (add_stopped_enabled).
 #   2. Stopped, incomplete torrents are "pending": connect Mullvad, wait until it
 #      reports connected on its tunnel interface, then start them.
 #   3. Kill switch: iptables lets the qBittorrent container reach only private
 #      addresses and the Mullvad tunnel; everything else is dropped, so a VPN drop
 #      or a race can't leak the home IP.
-#   4. No active or pending torrents for IDLE_SECS: disconnect.
-# Tag a stopped torrent "hold" to keep it stopped. The watcher owns the Mullvad
-# connection: a manual `mullvad connect` is undone after IDLE_SECS with no torrents.
+#   4. IDLE_SECS > 0 and no active or pending torrents for that long: disconnect.
+#      IDLE_SECS = 0 (default): Mullvad stays connected and is reconnected if it drops.
+#   5. Tailscale bypass: Mullvad's firewall drops tailscale0 traffic and its policy
+#      routing sends 100.64/10 into the tunnel. An nft table marks tailnet traffic
+#      with Mullvad's exclusion marks so it uses tailscale0; tailscaled's own
+#      (encrypted) UDP still goes through the Mullvad tunnel.
+# Tag a stopped torrent "hold" to keep it stopped.
 
 import json
 import os
@@ -20,12 +25,28 @@ import urllib.request
 
 QBIT_URL = os.environ.get("TORRENT_VPN_QBIT_URL", "http://localhost:8080")
 CONTAINER = os.environ.get("TORRENT_VPN_CONTAINER", "qbittorrent")
-IDLE_SECS = int(os.environ.get("TORRENT_VPN_IDLE_SECS", "300"))
+IDLE_SECS = int(os.environ.get("TORRENT_VPN_IDLE_SECS", "0"))  # 0 = always on
 POLL_SECS = int(os.environ.get("TORRENT_VPN_POLL_SECS", "5"))
 TUNNEL = "wg0-mullvad"
 CHAIN = "TORRENT_VPN"
 HOLD_TAG = "hold"
 PRIVATE = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+TS_TABLE = "tailscale-mullvad"
+# Mullvad's split-tunnel marks: ct mark lets its firewall pass a flow, meta mark
+# skips its "into the tunnel" routing rule.
+EXCLUDE = "ct mark set 0x00000f41 meta mark set 0x6d6f6c65"
+TS_RULESET = f"""table inet {TS_TABLE} {{
+  chain output {{
+    type route hook output priority -100; policy accept;
+    ip daddr 100.64.0.0/10 {EXCLUDE}
+    ip6 daddr fd7a:115c:a1e0::/48 {EXCLUDE}
+  }}
+  chain input {{
+    type filter hook input priority -100; policy accept;
+    iifname "tailscale0" {EXCLUDE}
+  }}
+}}
+"""
 # qBittorrent 5 states that move data or talk to peers/trackers
 ACTIVE = {"downloading", "stalledDL", "metaDL", "forcedMetaDL", "forcedDL", "queuedDL",
           "checkingDL", "allocating", "uploading", "stalledUP", "forcedUP", "queuedUP",
@@ -90,6 +111,15 @@ def ensure_kill_switch():
         log("iptables " + " ".join(c))
 
 
+def ensure_tailscale_bypass():
+    if sh("nft", "list", "table", "inet", TS_TABLE).returncode == 0:
+        return
+    r = subprocess.run(["nft", "-f", "-"], input=TS_RULESET, capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        raise RuntimeError("nft: " + r.stderr.strip())
+    log(f"loaded nft table inet {TS_TABLE} (Tailscale alongside Mullvad)")
+
+
 # --- qBittorrent / Mullvad ---------------------------------------------------
 
 def qbit(path, data=None):
@@ -118,20 +148,22 @@ def mullvad_connected():
 
 
 def main():
-    log(f"torrent-vpn up (qBittorrent {QBIT_URL}, container {CONTAINER}, idle {IDLE_SECS}s)")
+    mode = f"idle {IDLE_SECS}s" if IDLE_SECS else "always on"
+    log(f"torrent-vpn up (qBittorrent {QBIT_URL}, container {CONTAINER}, Mullvad {mode})")
     idle_since = None
     while True:
         try:
             ensure_kill_switch()
+            ensure_tailscale_bypass()
             if not qbit("app/preferences").get("add_stopped_enabled"):
                 qbit("app/setPreferences", {"json": json.dumps({"add_stopped_enabled": True})})
                 log("qBittorrent now adds torrents stopped")
             pending, active = classify(qbit("torrents/info"))
             connected = mullvad_connected()
-            if pending or active:
+            if pending or active or not IDLE_SECS:
                 idle_since = None
                 if not connected:
-                    log(f"{len(pending)} pending / active torrents: connecting Mullvad")
+                    log(f"connecting Mullvad ({len(pending)} pending, active: {active})")
                     sh("mullvad", "connect", "--wait")
                     connected = mullvad_connected()
                     log("Mullvad connected" if connected else "Mullvad did not connect; torrents stay stopped")

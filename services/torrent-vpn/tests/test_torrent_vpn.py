@@ -39,5 +39,15 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(w.classify([]), ([], False))
 
 
+class TailscaleBypassTest(unittest.TestCase):
+    def test_tailnet_traffic_gets_both_mullvad_exclusion_marks(self):
+        rules = [ln.strip() for ln in w.TS_RULESET.splitlines() if "mark set" in ln]
+        self.assertEqual(len(rules), 3)
+        self.assertTrue(any(r.startswith("ip daddr 100.64.0.0/10") for r in rules))
+        self.assertTrue(any(r.startswith('iifname "tailscale0"') for r in rules))
+        for r in rules:
+            self.assertIn("ct mark set 0x00000f41 meta mark set 0x6d6f6c65", r)
+
+
 if __name__ == "__main__":
     unittest.main()
