@@ -42,9 +42,12 @@ class ClassifyTest(unittest.TestCase):
 class TailscaleBypassTest(unittest.TestCase):
     def test_tailnet_traffic_gets_both_mullvad_exclusion_marks(self):
         rules = [ln.strip() for ln in w.TS_RULESET.splitlines() if "mark set" in ln]
-        self.assertEqual(len(rules), 3)
+        self.assertEqual(len(rules), 5)
         self.assertTrue(any(r.startswith("ip daddr 100.64.0.0/10") for r in rules))
         self.assertTrue(any(r.startswith('iifname "tailscale0"') for r in rules))
+        # tailscaled's own packets (socket mark 0x80000) and inbound WireGuard UDP
+        self.assertTrue(any(r.startswith("meta mark & 0x00ff0000 == 0x00080000") for r in rules))
+        self.assertTrue(any(r.startswith('iifname != "wg0-mullvad" udp dport 41641') for r in rules))
         for r in rules:
             self.assertIn("ct mark set 0x00000f41 meta mark set 0x6d6f6c65", r)
 

@@ -23,8 +23,11 @@ Tailscale keeps working alongside it. Runs on the media host as root
    tunnel. nft table `inet tailscale-mullvad` (loaded if missing, every poll)
    gives tailnet traffic Mullvad's exclusion marks (ct 0x00000f41, meta
    0x6d6f6c65), so it is accepted and routed via `tailscale0`. tailscaled's own
-   encrypted UDP still leaves through the Mullvad tunnel, so peers usually
-   connect via a DERP relay rather than directly.
+   encrypted packets (socket mark 0x80000) and inbound UDP 41641 get the same
+   marks and use the home connection. Through Mullvad, inbound UDP never arrives,
+   so peers were stuck on a DERP relay inside the tunnel, too slow to load media.
+   Each (re)load flushes tailscaled's UDP conntrack entries (needs `conntrack`):
+   flows opened through the tunnel keep an un-NAT'd tunnel source address.
 
 Tag a stopped torrent `hold` to keep it stopped.
 

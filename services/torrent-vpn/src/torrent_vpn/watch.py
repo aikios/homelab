@@ -11,9 +11,11 @@
 #   4. IDLE_SECS > 0 and no active or pending torrents for that long: disconnect.
 #      IDLE_SECS = 0 (default): Mullvad stays connected and is reconnected if it drops.
 #   5. Tailscale bypass: Mullvad's firewall drops tailscale0 traffic and its policy
-#      routing sends 100.64/10 into the tunnel. An nft table marks tailnet traffic
-#      with Mullvad's exclusion marks so it uses tailscale0; tailscaled's own
-#      (encrypted) UDP still goes through the Mullvad tunnel.
+#      routing sends 100.64/10 into the tunnel. An nft table gives tailnet traffic
+#      Mullvad's exclusion marks so it uses tailscale0. tailscaled's own encrypted
+#      packets (socket mark 0x80000) are excluded too and use the home connection:
+#      through Mullvad, inbound UDP never arrives, so peers fall back to a DERP relay
+#      tunnelled inside Mullvad, too slow to load Jellyfin.
 # Tag a stopped torrent "hold" to keep it stopped.
 
 import json
@@ -32,6 +34,7 @@ CHAIN = "TORRENT_VPN"
 HOLD_TAG = "hold"
 PRIVATE = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 TS_TABLE = "tailscale-mullvad"
+TS_PORT = 41641  # tailscaled's WireGuard port
 # Mullvad's split-tunnel marks: ct mark lets its firewall pass a flow, meta mark
 # skips its "into the tunnel" routing rule.
 EXCLUDE = "ct mark set 0x00000f41 meta mark set 0x6d6f6c65"
@@ -40,10 +43,12 @@ TS_RULESET = f"""table inet {TS_TABLE} {{
     type route hook output priority -100; policy accept;
     ip daddr 100.64.0.0/10 {EXCLUDE}
     ip6 daddr fd7a:115c:a1e0::/48 {EXCLUDE}
+    meta mark & 0x00ff0000 == 0x00080000 {EXCLUDE}
   }}
   chain input {{
     type filter hook input priority -100; policy accept;
     iifname "tailscale0" {EXCLUDE}
+    iifname != "{TUNNEL}" udp dport {TS_PORT} {EXCLUDE}
   }}
 }}
 """
@@ -111,12 +116,22 @@ def ensure_kill_switch():
         log("iptables " + " ".join(c))
 
 
+_ts_loaded = False
+
+
 def ensure_tailscale_bypass():
-    if sh("nft", "list", "table", "inet", TS_TABLE).returncode == 0:
+    """(Re)load the table at startup and whenever it's missing. Then drop
+    tailscaled's UDP conntrack entries: flows created while they still went into
+    the tunnel keep its source address un-NAT'd, and disco pings keep them alive."""
+    global _ts_loaded
+    if _ts_loaded and sh("nft", "list", "table", "inet", TS_TABLE).returncode == 0:
         return
-    r = subprocess.run(["nft", "-f", "-"], input=TS_RULESET, capture_output=True, text=True, check=False)
+    ruleset = f"table inet {TS_TABLE}\ndelete table inet {TS_TABLE}\n" + TS_RULESET
+    r = subprocess.run(["nft", "-f", "-"], input=ruleset, capture_output=True, text=True, check=False)
     if r.returncode != 0:
         raise RuntimeError("nft: " + r.stderr.strip())
+    sh("conntrack", "-D", "-p", "udp", "--sport", str(TS_PORT))
+    _ts_loaded = True
     log(f"loaded nft table inet {TS_TABLE} (Tailscale alongside Mullvad)")
 
 
