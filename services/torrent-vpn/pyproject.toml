@@ -1,0 +1,13 @@
+[project]
+name = "torrent-vpn"
+version = "0.1.0"
+description = "Mullvad on only while qBittorrent is torrenting; qBittorrent can only reach the internet through it"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+torrent-vpn = "torrent_vpn.watch:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

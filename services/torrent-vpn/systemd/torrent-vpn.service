@@ -1,0 +1,14 @@
+[Unit]
+Description=torrent-vpn — Mullvad on while qBittorrent is torrenting, off when idle
+After=docker.service mullvad-daemon.service network-online.target
+Wants=network-online.target
+
+[Service]
+# root: manages iptables (kill switch) and reads docker; no uv as root, run the venv entry point
+User=root
+ExecStart=%%REPO%%/.venv/bin/torrent-vpn
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
