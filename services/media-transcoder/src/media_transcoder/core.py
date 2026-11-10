@@ -245,6 +245,28 @@ def refresh_library():
     urllib.request.urlopen(req, timeout=30)
 
 
+def install_output(local_mp4, remote_mp4):
+    """Upload under a temporary name beside the target, byte-verify it, then rename
+    it into place (atomic on one filesystem). An mp4 source has the same path as its
+    output: uploading straight over it and then removing "the original" deleted the
+    new file (lost S01E05 of a show, 2026-11-09). The caller removes a source only
+    when it is a different file."""
+    tmp = remote_mp4 + ".partial"
+    # scp SFTP mode: raw paths, no shell quoting
+    up = run(["scp", "-o", "BatchMode=yes", local_mp4, HOST + ":" + tmp])
+    if up.returncode != 0:
+        ssh("rm -f " + shlex.quote(tmp))
+        raise RuntimeError("scp upload failed: " + up.stderr.strip()[-200:])
+    chk = ssh("stat -c %s " + shlex.quote(tmp))
+    if chk.stdout.strip() != str(os.path.getsize(local_mp4)):
+        ssh("rm -f " + shlex.quote(tmp))
+        raise RuntimeError("remote size mismatch; original kept")
+    mv = ssh("mv -f " + shlex.quote(tmp) + " " + shlex.quote(remote_mp4))
+    if mv.returncode != 0:
+        raise RuntimeError("rename into place failed (original kept, upload at " + tmp + "): "
+                           + mv.stderr.strip()[-150:])
+
+
 def process_job(job):
     """Returns a short result string; raises on failure. Original is only
     removed after the replacement is uploaded and byte-verified. Details for
@@ -264,6 +286,8 @@ def process_job(job):
     # An .mkv beside an existing .mp4 of the same name would overwrite it on upload.
     if remote_mp4 != source and ssh("test -e " + shlex.quote(remote_mp4)).returncode == 0:
         raise RuntimeError("output already exists, not overwriting: " + remote_mp4)
+    if remote_mp4 == source and not job.get("replace", True):
+        raise RuntimeError("mp4 source with replace=false: the output would overwrite it")
 
     probe = ffprobe_remote(source)
     streams = probe.get("streams", [])
@@ -290,16 +314,9 @@ def process_job(job):
             log("sub sidecar: " + rname)
     info["subs"] = len(sidecars)
 
-    # upload (scp SFTP mode: raw paths, no shell quoting)
-    up = run(["scp", "-o", "BatchMode=yes", local_mp4, HOST + ":" + remote_mp4])
-    if up.returncode != 0:
-        raise RuntimeError("scp upload failed: " + up.stderr.strip()[-200:])
+    install_output(local_mp4, remote_mp4)
     for lf, rname in sidecars:
         run(["scp", "-o", "BatchMode=yes", lf, HOST + ":" + outdir + "/" + rname])
-
-    chk = ssh("stat -c %s " + shlex.quote(remote_mp4))
-    if chk.stdout.strip() != str(os.path.getsize(local_mp4)):
-        raise RuntimeError("remote size mismatch; original kept, new file left alongside")
 
     for f in [local_mp4] + [lf for lf, _ in sidecars]:
         try:
@@ -307,7 +324,9 @@ def process_job(job):
         except OSError:
             pass
 
-    if job.get("replace", True):
+    if remote_mp4 == source:  # mp4 source: the rename above already replaced it
+        info["replaced"] = True
+    elif job.get("replace", True):
         rm = ssh("rm " + shlex.quote(source))
         if rm.returncode != 0:
             return "uploaded (original rm failed: " + rm.stderr.strip()[-150:] + ")"

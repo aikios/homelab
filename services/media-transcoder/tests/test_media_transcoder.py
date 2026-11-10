@@ -290,6 +290,62 @@ class EncodeModeTest(unittest.TestCase):
             self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
 
 
+class InstallTest(unittest.TestCase):
+    """Fake media host: a dict of path -> bytes, driven by the ssh/scp commands."""
+
+    def run_job(self, source, files):
+        import shlex
+
+        from media_transcoder import core
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+
+        def fake_ssh(cmd):
+            argv = shlex.split(cmd)
+            rc = 0
+            if argv[0] == "test":
+                rc = 0 if argv[2] in files else 1
+            elif argv[0] == "stat":
+                return mock.Mock(returncode=0, stdout=str(len(files.get(argv[-1], b""))), stderr="")
+            elif argv[0] == "mv":
+                files[argv[-1]] = files.pop(argv[-2])
+            elif argv[0] == "rm":
+                files.pop(argv[-1], None)
+            return mock.Mock(returncode=rc, stdout="", stderr="")
+
+        def fake_run(cmd, **_):
+            if cmd[0] == "scp":
+                with open(cmd[-2], "rb") as f:
+                    files[cmd[-1].split(":", 1)[1]] = f.read()
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        def fake_encode(_src, _streams, local, seek=False):
+            with open(local, "wb") as f:
+                f.write(b"NEW")
+            return "NVIDIA"
+        with (mock.patch.object(core, "ssh", side_effect=fake_ssh),
+              mock.patch.object(core, "run", side_effect=fake_run),
+              mock.patch.object(core, "ffprobe_remote", return_value={
+                  "format": {"format_name": "mov,mp4", "duration": "10"}, "streams": []}),
+              mock.patch.object(core, "encode", side_effect=fake_encode),
+              mock.patch.object(core, "verify_output"), mock.patch.object(core, "log"),
+              mock.patch.object(core, "STAGE", tmp.name)):
+            job = {"source": source, "extract_subs": False, "refresh": False}
+            core.process_job(job)
+        return job
+
+    def test_mp4_source_is_replaced_in_place_not_deleted(self):
+        files = {"/m/S/x.mp4": b"OLD"}
+        job = self.run_job("/m/S/x.mp4", files)
+        self.assertEqual(files, {"/m/S/x.mp4": b"NEW"})
+        self.assertTrue(job["result_info"]["replaced"])
+
+    def test_mkv_source_is_removed_after_the_mp4_lands(self):
+        files = {"/m/S/x.mkv": b"OLD"}
+        self.run_job("/m/S/x.mkv", files)
+        self.assertEqual(files, {"/m/S/x.mp4": b"NEW"})
+
+
 class SeekTest(unittest.TestCase):
     def test_mp4_and_mov_are_read_over_sftp(self):
         from media_transcoder import core
