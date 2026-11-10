@@ -1,5 +1,5 @@
 [Unit]
-Description=torrent-vpn — Mullvad on while qBittorrent is torrenting, off when idle
+Description=torrent-vpn — Mullvad always on, qBittorrent kill switch, Tailscale alongside
 After=docker.service mullvad-daemon.service network-online.target
 Wants=network-online.target
 
