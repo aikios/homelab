@@ -158,6 +158,16 @@ def _fill_cues(video: str, tracks: list[dict]) -> None:
         out.unlink(missing_ok=True)
 
 
+def _other_lang(sub_path: str, lang: str) -> bool:
+    """The file name carries a language tag that isn't `lang` (x.es.srt, x.fre.ass)."""
+    for part in Path(sub_path).stem.lower().split(".")[1:]:
+        if part in ("und", "default", "forced", "sdh", "hi", "cc"):
+            continue
+        if len(part) in (2, 3) and part.isalpha():
+            return not _lang_match(part, lang)
+    return False
+
+
 def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
     """Return (kind, ref): ('done','') if our styled track is already present |
     ('embedded', rel_index) | ('sidecar', path) | ('online', path).
@@ -180,7 +190,8 @@ def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
     # this video's own sidecars; other subs in the folder only when the video is
     # alone there (a season folder's other .en.srt files belong to other episodes)
     own = [s for s in info["sidecar"] if Path(s).name.startswith(Path(video).stem)]
-    for s in own or (info["sidecar"] if _alone_in_dir(video) else []):
+    pool = own or (info["sidecar"] if _alone_in_dir(video) else [])
+    for s in pool:
         stem_tail = Path(s).stem.lower()
         if _lang_match(stem_tail.split(".")[-1], lang) or f".{lang}" in stem_tail or \
            (lang == "en" and "english" in stem_tail):
@@ -194,9 +205,12 @@ def pick_source(video: str, lang: str = "en") -> tuple[str, str] | None:
     best = subpick.pick_primary(side)
     if best:
         return ("sidecar", best["path"])
-    # only-one sidecar with no language marker: assume it's the release's main sub
-    if len(info["sidecar"]) == 1:
-        return ("sidecar", info["sidecar"][0])
+    # only-one sidecar with no language marker: assume it's the release's main sub.
+    # Only from this video's own pool: in a season folder the lone sub can be another
+    # episode's (Skins S01E02 got S01E01's styled track this way), and never one
+    # marked as a different language.
+    if len(pool) == 1 and not _other_lang(pool[0], lang):
+        return ("sidecar", pool[0])
     got = _fetch_online(video, lang)
     return ("online", got) if got else None
 
