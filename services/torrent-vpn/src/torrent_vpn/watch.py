@@ -16,6 +16,10 @@
 #      packets (socket mark 0x80000) are excluded too and use the home connection:
 #      through Mullvad, inbound UDP never arrives, so peers fall back to a DERP relay
 #      tunnelled inside Mullvad, too slow to load Jellyfin.
+#   6. LAN multicast: the main table has no multicast route, so mDNS (224.0.0.251)
+#      fell through to Mullvad's table and went into the tunnel. Home Assistant's
+#      HomeKit bridge then never reached the LAN and Apple Home showed every plug
+#      as "No Response". A 224.0.0.0/4 route on the LAN interface keeps it local.
 # Tag a stopped torrent "hold" to keep it stopped.
 
 import json
@@ -33,6 +37,8 @@ TUNNEL = "wg0-mullvad"
 CHAIN = "TORRENT_VPN"
 HOLD_TAG = "hold"
 PRIVATE = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+MULTICAST = "224.0.0.0/4"
+LAN_IF = os.environ.get("TORRENT_VPN_LAN_IF", "")  # default: the main table's default-route device
 TS_TABLE = "tailscale-mullvad"
 TS_PORT = 41641  # tailscaled's WireGuard port
 # Mullvad's split-tunnel marks: ct mark lets its firewall pass a flow, meta mark
@@ -135,6 +141,29 @@ def ensure_tailscale_bypass():
     log(f"loaded nft table inet {TS_TABLE} (Tailscale alongside Mullvad)")
 
 
+def lan_interface(main_default_route):
+    """Device of the main table's default route ('default via 192.168.1.1 dev enp5s0 ...')."""
+    parts = main_default_route.split()
+    return parts[parts.index("dev") + 1] if "dev" in parts else ""
+
+
+def multicast_plan(route_now, lan_if):
+    """ip-route args that put multicast on the LAN interface, or [] if already there."""
+    if not lan_if or f"dev {lan_if}" in route_now:
+        return []
+    return ["replace", MULTICAST, "dev", lan_if]
+
+
+def ensure_lan_multicast():
+    lan_if = LAN_IF or lan_interface(sh("ip", "route", "show", "table", "main", "default").stdout)
+    plan = multicast_plan(sh("ip", "route", "show", "table", "main", MULTICAST).stdout, lan_if)
+    if plan:
+        r = sh("ip", "route", *plan)
+        if r.returncode != 0:
+            raise RuntimeError("ip route: " + r.stderr.strip())
+        log(f"multicast {MULTICAST} routed on {lan_if} (mDNS stays off the tunnel)")
+
+
 # --- qBittorrent / Mullvad ---------------------------------------------------
 
 def qbit(path, data=None):
@@ -170,6 +199,7 @@ def main():
         try:
             ensure_kill_switch()
             ensure_tailscale_bypass()
+            ensure_lan_multicast()
             if not qbit("app/preferences").get("add_stopped_enabled"):
                 qbit("app/setPreferences", {"json": json.dumps({"add_stopped_enabled": True})})
                 log("qBittorrent now adds torrents stopped")

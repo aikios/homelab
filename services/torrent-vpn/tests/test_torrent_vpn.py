@@ -52,5 +52,21 @@ class TailscaleBypassTest(unittest.TestCase):
             self.assertIn("ct mark set 0x00000f41 meta mark set 0x6d6f6c65", r)
 
 
+
+class LanMulticastTest(unittest.TestCase):
+    def test_lan_interface_from_default_route(self):
+        self.assertEqual(w.lan_interface("default via 192.168.1.1 dev enp5s0 proto static metric 100\n"), "enp5s0")
+        self.assertEqual(w.lan_interface(""), "")
+
+    def test_missing_route_is_added_on_lan(self):
+        self.assertEqual(w.multicast_plan("", "enp5s0"), ["replace", w.MULTICAST, "dev", "enp5s0"])
+
+    def test_route_already_on_lan_is_a_no_op(self):
+        self.assertEqual(w.multicast_plan("224.0.0.0/4 dev enp5s0 scope link \n", "enp5s0"), [])
+
+    def test_unknown_lan_interface_does_nothing(self):
+        self.assertEqual(w.multicast_plan("", ""), [])
+
+
 if __name__ == "__main__":
     unittest.main()

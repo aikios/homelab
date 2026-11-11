@@ -40,3 +40,12 @@ Tag a stopped torrent `hold` to keep it stopped.
 ## Config (env, optional)
 `TORRENT_VPN_QBIT_URL` (http://localhost:8080; WebUI localhost auth bypass),
 `TORRENT_VPN_CONTAINER` (qbittorrent), `TORRENT_VPN_IDLE_SECS`, `TORRENT_VPN_POLL_SECS`.
+
+## LAN multicast (2026-11-11)
+
+With Mullvad always on, mDNS (224.0.0.251) had no route in the main table and fell through to
+Mullvad's policy table, so it went into the tunnel. Home Assistant's HomeKit bridge was never
+advertised on the LAN and Apple Home showed every plug as "No Response". The watcher now keeps
+`224.0.0.0/4 dev <LAN>` in the main table (LAN = the main default route's device, or
+`TORRENT_VPN_LAN_IF`). Home Assistant's network settings are also pinned to `enp5s0`, because its
+automatic choice had become `wg0-mullvad`, which made it advertise the tunnel address.
