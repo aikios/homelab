@@ -87,7 +87,7 @@ var BACKURL = (function () {
 var view = "list", games = [], sel = 0, curEvent = null, curTitle = "";
 var tabs = [], tab = 0, rows = [];
 var prep = null, psrc = 0, cands = [], candIdx = 0, hls = null, povT = null;
-var prepGen = 0, autoPlayed = false, tried = {};
+var prepGen = 0, autoPlayed = false, tried = {}, playGen = 0;
 
 function goBack() { location.href = BACKURL || "jellyfin.html"; }
 function toast(m, ms) {
@@ -308,17 +308,31 @@ function tryCand() {
     startPlay();
   }
 }
+// play() rejections are async, so a stale one (AbortError when the next candidate
+// swaps the source in) must not mute or skip the candidate that replaced it.
 function startPlay() {
-  var v = document.getElementById("v");
+  var v = document.getElementById("v"), gen = ++playGen;
   var p = v.play();
-  if (p && p.catch) p.catch(function () {
-    v.muted = true;
-    v.play().catch(function () { nextCand("autoplay blocked"); });
-    var povEl = document.getElementById("pov");
-    povEl.textContent = "MUTED — press OK for audio";
-    povEl.style.display = "block";
+  if (p && p.catch) p.catch(function (err) {
+    if (gen !== playGen || view !== "play" || (err && err.name === "AbortError")) return;
+    if (!err || err.name !== "NotAllowedError") { nextCand("play failed: " + (err && err.name)); return; }
+    v.muted = true;  // autoplay policy: unmuted play needs a key press, muted doesn't
+    mutedHint();
+    v.play().catch(function (e2) {
+      if (gen === playGen && view === "play" && !(e2 && e2.name === "AbortError")) nextCand("autoplay blocked");
+    });
   });
 }
+// Stays up for as long as the video is muted; pov() messages show over it briefly
+// and hand back to it when their timer runs out.
+function mutedHint() {
+  var v = document.getElementById("v"), p = document.getElementById("pov");
+  if (view !== "play" || !v.muted) return;
+  clearTimeout(povT);
+  p.textContent = "MUTED \u2014 press OK for audio";
+  p.style.display = "block";
+}
+document.getElementById("v").addEventListener("playing", mutedHint);
 function nextCand(why) {
   toast("(" + why + ") trying next source…", 2000);
   candIdx++;
@@ -327,7 +341,8 @@ function nextCand(why) {
 function pov(msg) {
   var p = document.getElementById("pov");
   p.textContent = msg; p.style.display = "block";
-  clearTimeout(povT); povT = setTimeout(function () { p.style.display = "none"; }, 4000);
+  clearTimeout(povT);
+  povT = setTimeout(function () { p.style.display = "none"; mutedHint(); }, 4000);
 }
 function closePlayer() {
   var v = document.getElementById("v");
@@ -347,6 +362,8 @@ document.addEventListener("keydown", function (e) {
     else if (k === "Enter" || k === "MediaPlayPause") {
       if (vid.muted) {
         vid.muted = false;
+        if (vid.paused) vid.play().catch(function () {});
+        clearTimeout(povT);
         document.getElementById("pov").style.display = "none";
         toast("Audio on");
       } else {
