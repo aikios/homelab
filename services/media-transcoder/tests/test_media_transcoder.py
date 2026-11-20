@@ -276,7 +276,21 @@ class EncodeModeTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         a = calls[0]
         self.assertEqual(a[a.index("-c:v") + 1], "copy")
-        self.assertEqual(a[a.index("-c:a") + 1], "aac")
+        self.assertEqual(a[a.index("-c:a:0") + 1], "aac")
+
+    def test_every_audio_track_is_kept_default_first(self):
+        streams = [{"index": 0, "codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p"},
+                   {"index": 1, "codec_type": "audio", "codec_name": "aac"},
+                   {"index": 2, "codec_type": "audio", "codec_name": "eac3", "disposition": {"default": 1}},
+                   {"index": 3, "codec_type": "subtitle", "codec_name": "subrip"}]
+        _mode, calls = self.run_encode(streams)
+        a = calls[0]
+        maps = [a[i + 1] for i, x in enumerate(a) if x == "-map"]
+        self.assertEqual(maps, ["0:V:0", "0:2", "0:1"])
+        self.assertEqual(a[a.index("-c:a:0") + 1], "aac")      # eac3 -> aac
+        self.assertEqual(a[a.index("-c:a:1") + 1], "copy")     # already aac
+        self.assertEqual(a[a.index("-disposition:a:0") + 1], "default")
+        self.assertEqual(a[a.index("-disposition:a:1") + 1], "0")
 
     def test_failed_remux_falls_back_to_reencode(self):
         mode, calls = self.run_encode(self.streams("h264", "yuv420p"), fail_first=True)

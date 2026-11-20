@@ -101,6 +101,25 @@ def pick_audio(streams):
     raise RuntimeError("no audio stream found")
 
 
+def audio_args(streams):
+    """Keep EVERY audio track (dubs, original language, commentary) so the TV
+    player can switch between them. The default track goes first and is the only
+    one flagged default: the TV's browser direct-plays the first track of an mp4.
+    AAC tracks are copied, anything else becomes AAC. Returns the -map/-c/-disposition
+    args for all audio outputs."""
+    first = pick_audio(streams)
+    tracks = [first] + [s for s in streams if s.get("codec_type") == "audio" and s is not first]
+    maps, codecs = [], []
+    for n, a in enumerate(tracks):
+        maps += ["-map", "0:" + str(a.get("index", 1))]
+        if a.get("codec_name") == "aac":
+            codecs += [f"-c:a:{n}", "copy"]
+        else:
+            codecs += [f"-c:a:{n}", "aac", f"-b:a:{n}", "256k"]
+        codecs += [f"-disposition:a:{n}", "default" if n == 0 else "0"]
+    return maps, codecs
+
+
 def text_subs(streams):
     return [s for s in streams
             if s.get("codec_type") == "subtitle" and
@@ -126,30 +145,28 @@ def can_copy_video(streams):
 
 
 def encode(source, streams, local_mp4, seek=False):
-    a = pick_audio(streams)
-    aidx = str(a.get("index", 1))
-    ac = ["-c:a", "copy"] if a.get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "256k"]
+    amap, ac = audio_args(streams)
     remux = []
     if can_copy_video(streams):
         # R: remux, video copied as-is (seconds, same quality and size); falls through
         # to the re-encode tiers if the copy fails (e.g. missing timestamps).
-        remux = [["-fflags", "+genpts", "-i", "pipe:0", "-map", "0:V:0", "-map", "0:" + aidx,
+        remux = [["-fflags", "+genpts", "-i", "pipe:0", "-map", "0:V:0"] + amap + [
                   "-c:v", "copy"] + ac + ["-sn", "-movflags", "+faststart", local_mp4]]
     attempts = remux + [
         # A: NVIDIA full-GPU (NVDEC decode + NVENC encode) — handles 10-bit HEVC
         ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", "pipe:0",
-         "-map", "0:V:0", "-map", "0:" + aidx, "-vf", "scale_cuda=format=nv12",
+         "-map", "0:V:0"] + amap + ["-vf", "scale_cuda=format=nv12",
          "-c:v", "h264_nvenc", "-rc", "constqp", "-qp", "24"] + ac +
         ["-sn", "-movflags", "+faststart", local_mp4],
         # B: GPU decode + GPU encode (iGPU VAAPI)
         ["-vaapi_device", "/dev/dri/renderD128", "-hwaccel", "vaapi",
          "-hwaccel_output_format", "vaapi", "-i", "pipe:0",
-         "-map", "0:V:0", "-map", "0:" + aidx, "-vf", "scale_vaapi=format=nv12",
+         "-map", "0:V:0"] + amap + ["-vf", "scale_vaapi=format=nv12",
          "-c:v", "h264_vaapi", "-qp", "24", "-b:v", "0"] + ac +
         ["-sn", "-movflags", "+faststart", local_mp4],
         # C: CPU decode + GPU encode (fallback: av1, odd profiles, 10-bit hevc)
         ["-vaapi_device", "/dev/dri/renderD128", "-i", "pipe:0",
-         "-map", "0:V:0", "-map", "0:" + aidx, "-vf", "format=nv12,hwupload",
+         "-map", "0:V:0"] + amap + ["-vf", "format=nv12,hwupload",
          "-c:v", "h264_vaapi", "-qp", "24", "-b:v", "0"] + ac +
         ["-sn", "-movflags", "+faststart", local_mp4],
     ]
