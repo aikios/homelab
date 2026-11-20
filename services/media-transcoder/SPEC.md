@@ -50,7 +50,9 @@ media host (`MEDIA_TRANSCODER_QUEUE_DIR`). A worker claims one with an atomic
   over ssh; if the video is already 8-bit 4:2:0 h264, remux it (video stream-copied, audio → aac
   if needed: seconds, no size or quality change), otherwise or if that fails, encode with a
   3-tier ffmpeg fallback (NVENC → VAAPI GPU-decode →
-  CPU-decode + VAAPI-encode); extract text subs as sidecars (one read for all
+  CPU-decode + VAAPI-encode); **every audio track is kept** (the default first and
+  flagged default, since the TV direct-plays an mp4's first track; aac copied, others ->
+  aac 256k; before 2026-11-19 only the default track survived and the original was deleted); extract text subs as sidecars (one read for all
   tracks; ONE per language, the primary track via `homelab_core.subtitles`; a
   language that already has a sidecar, e.g. media-concierge's styled
   `<stem>.en.default.ass`, is left alone); upload;

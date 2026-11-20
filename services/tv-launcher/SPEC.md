@@ -96,3 +96,15 @@ written before the `playing` event, so a failed load never clobbers a resume
 point. Opening an item with a saved position shows a Resume / Start over chooser
 (Resume focused). Lists show a progress bar (episode thumbs, movie posters) and
 "Watched" on finished episodes (`enableUserData=true` on the list queries).
+
+## Audio tracks
+Items with more than one audio track show `▼ Audio: <language>` in the control row
+while paused; **Down** (paused) opens an AUDIO picker (Up/Down, OK to pick, Back/Left
+to close); `MediaAudioTrack` / `A` open it any time. Single-track items keep Down =
+-60 s. Chromium 72 has no `audioTracks` API, so direct play (static mp4) only ever
+plays the file's first track: any other track switches the item to Jellyfin's
+progressive transcode with `AudioStreamIndex=<stream Index>` (verified 200 + aac on
+10.11.6), restarting at the same position. The pick is remembered per series (per
+movie) in `localStorage` (`jfAud:<id>`, language + title), else the server's
+`DefaultAudioStreamIndex`, else `IsDefault`, else the first track. media-transcoder
+keeps every audio track (default first) so there is something to switch to.
